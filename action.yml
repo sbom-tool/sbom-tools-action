@@ -1,0 +1,455 @@
+name: 'sbom-tools'
+description: 'Install and run sbom-tools for SBOM diff, validation, and quality scoring'
+author: 'sbom-tool'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  version:
+    description: 'sbom-tools version to install (e.g. "0.1.14", "latest")'
+    required: false
+    default: 'latest'
+  command:
+    description: 'Command to run: diff, validate, quality, view, query'
+    required: true
+  args:
+    description: 'Arguments to pass to the command (space-separated file paths)'
+    required: false
+    default: ''
+  fail-on-vuln:
+    description: 'Exit non-zero if new vulnerabilities are introduced (diff only)'
+    required: false
+    default: 'false'
+  fail-on-change:
+    description: 'Exit non-zero if any SBOM changes are detected (diff only)'
+    required: false
+    default: 'false'
+  fail-on-vex-gap:
+    description: 'Exit non-zero if vulnerabilities lack VEX statements (diff only)'
+    required: false
+    default: 'false'
+  enrich-vulns:
+    description: 'Enrich SBOM with vulnerability data from OSV/KEV'
+    required: false
+    default: 'false'
+  output-format:
+    description: 'Output format: json, sarif, markdown, summary, table, csv, html'
+    required: false
+    default: ''
+  output-file:
+    description: 'Write output to this file path'
+    required: false
+    default: ''
+  min-score:
+    description: 'Minimum quality score threshold (quality command only)'
+    required: false
+    default: ''
+  standard:
+    description: 'Compliance standard(s) to check (validate command): ntia, cra, fda, ssdf, eo14028'
+    required: false
+    default: ''
+  profile:
+    description: 'Quality scoring profile: minimal, standard, security, comprehensive, cra'
+    required: false
+    default: ''
+  working-directory:
+    description: 'Working directory for running the command'
+    required: false
+    default: '.'
+  verify-slsa:
+    description: 'Verify SLSA provenance of downloaded binary (requires slsa-verifier)'
+    required: false
+    default: 'true'
+
+outputs:
+  exit-code:
+    description: 'Exit code from sbom-tools (0=success, 1=changes, 2=vulns, 4=vex-gaps)'
+    value: ${{ steps.run.outputs.exit-code }}
+  version:
+    description: 'Installed sbom-tools version'
+    value: ${{ steps.install.outputs.version }}
+  slsa-verified:
+    description: 'Whether SLSA provenance was successfully verified'
+    value: ${{ steps.install.outputs.slsa-verified }}
+
+runs:
+  using: 'composite'
+  steps:
+    # ── Step 1: Detect platform ──────────────────────────────────────────
+    # runner.os and runner.arch are GitHub-controlled constants, not user input.
+    - name: Detect platform
+      id: platform
+      shell: bash
+      run: |
+        case "${{ runner.os }}-${{ runner.arch }}" in
+          Linux-X64)   target="x86_64-unknown-linux-gnu" ; ext="tar.gz" ;;
+          Linux-ARM64)  target="aarch64-unknown-linux-gnu" ; ext="tar.gz" ;;
+          macOS-X64)    target="x86_64-apple-darwin" ; ext="tar.gz" ;;
+          macOS-ARM64)  target="aarch64-apple-darwin" ; ext="tar.gz" ;;
+          Windows-X64)  target="x86_64-pc-windows-msvc" ; ext="zip" ;;
+          *)
+            echo "::error::Unsupported platform: ${{ runner.os }}-${{ runner.arch }}"
+            exit 1
+            ;;
+        esac
+        echo "target=$target" >> "$GITHUB_OUTPUT"
+        echo "ext=$ext" >> "$GITHUB_OUTPUT"
+
+    # ── Step 2: Validate all user inputs ─────────────────────────────────
+    # SECURITY: Every ${{ inputs.* }} is mapped to an env var. The run: block
+    # NEVER contains ${{ inputs.* }} expressions — only $ENV_VAR references.
+    # This prevents command injection via GitHub Actions expression interpolation.
+    - name: Validate inputs
+      id: validate
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_ARGS: ${{ inputs.args }}
+        INPUT_OUTPUT_FORMAT: ${{ inputs.output-format }}
+        INPUT_OUTPUT_FILE: ${{ inputs.output-file }}
+        INPUT_MIN_SCORE: ${{ inputs.min-score }}
+        INPUT_STANDARD: ${{ inputs.standard }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_FAIL_ON_VULN: ${{ inputs.fail-on-vuln }}
+        INPUT_FAIL_ON_CHANGE: ${{ inputs.fail-on-change }}
+        INPUT_FAIL_ON_VEX_GAP: ${{ inputs.fail-on-vex-gap }}
+        INPUT_ENRICH_VULNS: ${{ inputs.enrich-vulns }}
+        INPUT_WORKING_DIR: ${{ inputs.working-directory }}
+        INPUT_VERIFY_SLSA: ${{ inputs.verify-slsa }}
+      run: |
+        errors=0
+
+        # ── Version: "latest" or strict semver (no wildcards, no shell chars) ──
+        if [[ ! "$INPUT_VERSION" =~ ^(latest|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$ ]]; then
+          echo "::error::Invalid version: must be 'latest' or semver like '0.1.14' or '0.1.14-rc1'"
+          errors=$((errors + 1))
+        fi
+
+        # ── Command: strict whitelist ──
+        case "$INPUT_COMMAND" in
+          diff|validate|quality|view|query) ;;
+          *)
+            echo "::error::Invalid command: '$INPUT_COMMAND'. Must be: diff, validate, quality, view, query"
+            errors=$((errors + 1))
+            ;;
+        esac
+
+        # ── Args: reject all shell metacharacters ──
+        # Even though args flow through bash arrays (not eval), defense-in-depth
+        # rejects characters that have no place in file paths or CLI flags.
+        if [[ "$INPUT_ARGS" =~ [\;\|\&\$\`\(\)\{\}\<\>\!\#\\\'] ]] || [[ "$INPUT_ARGS" == *'"'* ]]; then
+          echo "::error::Invalid args: contains shell metacharacters. Use only file paths and flags."
+          errors=$((errors + 1))
+        fi
+
+        # ── Output format: strict whitelist ──
+        if [ -n "$INPUT_OUTPUT_FORMAT" ]; then
+          case "$INPUT_OUTPUT_FORMAT" in
+            json|sarif|markdown|summary|table|csv|html|side-by-side) ;;
+            *)
+              echo "::error::Invalid output-format: '$INPUT_OUTPUT_FORMAT'"
+              errors=$((errors + 1))
+              ;;
+          esac
+        fi
+
+        # ── Output file: reject shell metacharacters ──
+        if [[ "$INPUT_OUTPUT_FILE" =~ [\;\|\&\$\`\(\)\{\}\<\>\!\#\\\'] ]] || [[ "$INPUT_OUTPUT_FILE" == *'"'* ]]; then
+          echo "::error::Invalid output-file: contains shell metacharacters"
+          errors=$((errors + 1))
+        fi
+
+        # ── Min-score: numeric only ──
+        if [ -n "$INPUT_MIN_SCORE" ] && [[ ! "$INPUT_MIN_SCORE" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+          echo "::error::Invalid min-score: '$INPUT_MIN_SCORE'. Must be a number."
+          errors=$((errors + 1))
+        fi
+
+        # ── Standard: comma-separated whitelist ──
+        if [ -n "$INPUT_STANDARD" ]; then
+          IFS=',' read -ra standards <<< "$INPUT_STANDARD"
+          for std in "${standards[@]}"; do
+            case "$std" in
+              ntia|cra|fda|ssdf|eo14028) ;;
+              *)
+                echo "::error::Invalid standard: '$std'"
+                errors=$((errors + 1))
+                ;;
+            esac
+          done
+        fi
+
+        # ── Profile: strict whitelist ──
+        if [ -n "$INPUT_PROFILE" ]; then
+          case "$INPUT_PROFILE" in
+            minimal|standard|security|comprehensive|cra|license-compliance) ;;
+            *)
+              echo "::error::Invalid profile: '$INPUT_PROFILE'"
+              errors=$((errors + 1))
+              ;;
+          esac
+        fi
+
+        # ── Booleans: must be exactly "true" or "false" ──
+        for var_name in INPUT_FAIL_ON_VULN INPUT_FAIL_ON_CHANGE INPUT_FAIL_ON_VEX_GAP INPUT_ENRICH_VULNS INPUT_VERIFY_SLSA; do
+          val="${!var_name}"
+          if [[ "$val" != "true" && "$val" != "false" ]]; then
+            echo "::error::Invalid boolean for ${var_name}: '$val'"
+            errors=$((errors + 1))
+          fi
+        done
+
+        # ── Working directory: reject shell metacharacters ──
+        if [[ "$INPUT_WORKING_DIR" =~ [\;\|\&\$\`\(\)\{\}\<\>\!\#\\\'] ]] || [[ "$INPUT_WORKING_DIR" == *'"'* ]]; then
+          echo "::error::Invalid working-directory: contains shell metacharacters"
+          errors=$((errors + 1))
+        fi
+
+        if [ "$errors" -gt 0 ]; then
+          echo "::error::Input validation failed with $errors error(s)"
+          exit 1
+        fi
+        echo "All inputs validated"
+
+    # ── Step 3: Resolve version ──────────────────────────────────────────
+    # SECURITY: INPUT_VERSION from env var (safe). gh output is re-validated.
+    - name: Resolve version
+      id: version
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        version="$INPUT_VERSION"
+        if [ "$version" = "latest" ]; then
+          version=$(gh release view --repo sbom-tool/sbom-tools --json tagName -q '.tagName' | sed 's/^v//')
+          if [ -z "$version" ]; then
+            echo "::error::Failed to resolve latest version"
+            exit 1
+          fi
+          # Defense-in-depth: re-validate resolved version from GitHub API
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Resolved version '$version' does not match expected semver format"
+            exit 1
+          fi
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    # ── Step 4: Download, verify, install ────────────────────────────────
+    # SECURITY INVARIANT: ZERO ${{ }} expressions in the run: block.
+    # All dynamic values come through env: mappings exclusively.
+    # - RESOLVED_VERSION: from step output (validated semver)
+    # - RESOLVED_TARGET/EXT: from platform detection (hardcoded values)
+    # - RUNNER_OS_VALUE: GitHub-controlled constant
+    # - INPUT_VERIFY_SLSA: validated boolean
+    - name: Install sbom-tools
+      id: install
+      shell: bash
+      env:
+        RESOLVED_VERSION: ${{ steps.version.outputs.version }}
+        RESOLVED_TARGET: ${{ steps.platform.outputs.target }}
+        RESOLVED_EXT: ${{ steps.platform.outputs.ext }}
+        RUNNER_OS_VALUE: ${{ runner.os }}
+        INPUT_VERIFY_SLSA: ${{ inputs.verify-slsa }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        version="$RESOLVED_VERSION"
+        target="$RESOLVED_TARGET"
+        ext="$RESOLVED_EXT"
+        archive="sbom-tools-${target}.${ext}"
+        base_url="https://github.com/sbom-tool/sbom-tools/releases/download/v${version}"
+
+        # ── Isolated temp directory ──
+        work_dir=$(mktemp -d)
+        trap 'rm -rf "$work_dir"' EXIT
+        cd "$work_dir"
+
+        # ── Download binary archive + checksum ──
+        echo "::group::Downloading sbom-tools v${version} for ${target}"
+        curl -fsSL --retry 3 -o "$archive" "${base_url}/${archive}"
+        curl -fsSL --retry 3 -o "${archive}.sha256" "${base_url}/${archive}.sha256"
+
+        # ── SHA-256 verification ──
+        # Extract only the hash (first field), ignoring the filename field.
+        # This prevents an attacker from crafting a checksum file that references
+        # a different file than the one we downloaded.
+        expected_hash=$(awk '{print $1}' "${archive}.sha256")
+
+        # Validate hash looks like a hex SHA-256 (exactly 64 hex chars)
+        if [[ ! "$expected_hash" =~ ^[0-9a-f]{64}$ ]]; then
+          echo "::error::Malformed checksum file: expected 64-char hex hash, got '${expected_hash:0:20}...'"
+          exit 1
+        fi
+
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual_hash=$(sha256sum "$archive" | awk '{print $1}')
+        elif command -v shasum >/dev/null 2>&1; then
+          actual_hash=$(shasum -a 256 "$archive" | awk '{print $1}')
+        else
+          echo "::error::No SHA-256 tool found (sha256sum or shasum). Cannot verify binary integrity."
+          exit 1
+        fi
+
+        if [ "$expected_hash" != "$actual_hash" ]; then
+          echo "::error::SHA-256 checksum mismatch! Expected: $expected_hash, Got: $actual_hash"
+          exit 1
+        fi
+        echo "SHA-256 verified: $actual_hash"
+
+        # ── SLSA provenance verification ──
+        slsa_verified="false"
+        if [ "$INPUT_VERIFY_SLSA" = "true" ]; then
+          echo "Attempting SLSA provenance verification..."
+
+          # Download provenance attestation from the release
+          if curl -fsSL --retry 3 -o "sbom-tools.intoto.jsonl" \
+            "${base_url}/sbom-tools.intoto.jsonl" 2>/dev/null; then
+
+            # Install slsa-verifier if not present
+            if ! command -v slsa-verifier >/dev/null 2>&1; then
+              echo "Installing slsa-verifier..."
+              slsa_ver="2.7.0"
+              case "$RUNNER_OS_VALUE" in
+                Linux)  slsa_os="linux" ; slsa_arch="amd64" ;;
+                macOS)  slsa_os="darwin" ; slsa_arch="arm64" ;;
+                *)      slsa_os="" ;;
+              esac
+              if [ -n "$slsa_os" ]; then
+                slsa_url="https://github.com/slsa-framework/slsa-verifier/releases/download/v${slsa_ver}/slsa-verifier-${slsa_os}-${slsa_arch}"
+                curl -fsSL --retry 3 -o slsa-verifier "$slsa_url"
+                chmod +x slsa-verifier
+                export PATH="$PWD:$PATH"
+              fi
+            fi
+
+            if command -v slsa-verifier >/dev/null 2>&1; then
+              # Verify the archive against the provenance
+              if slsa-verifier verify-artifact "$archive" \
+                --provenance-path "sbom-tools.intoto.jsonl" \
+                --source-uri "github.com/sbom-tool/sbom-tools" \
+                --source-tag "v${version}" 2>&1; then
+                echo "SLSA provenance verified successfully"
+                slsa_verified="true"
+              else
+                echo "::warning::SLSA provenance verification failed — binary may not have provenance yet. SHA-256 checksum was verified."
+              fi
+            else
+              echo "::warning::slsa-verifier not available on this platform. SHA-256 checksum was verified."
+            fi
+          else
+            echo "::warning::No SLSA provenance found for v${version}. SHA-256 checksum was verified."
+          fi
+        fi
+        echo "slsa-verified=$slsa_verified" >> "$GITHUB_OUTPUT"
+
+        # ── Extract archive ──
+        if [ "$ext" = "tar.gz" ]; then
+          tar xzf "$archive"
+        else
+          unzip -q "$archive"
+        fi
+
+        # ── Verify extracted binary exists before moving ──
+        if [ "$RUNNER_OS_VALUE" = "Windows" ]; then
+          binary_name="sbom-tools.exe"
+        else
+          binary_name="sbom-tools"
+        fi
+        if [ ! -f "$binary_name" ]; then
+          echo "::error::Expected binary '$binary_name' not found in archive"
+          exit 1
+        fi
+
+        # ── Install to tool cache ──
+        install_dir="${RUNNER_TOOL_CACHE:-/tmp}/sbom-tools/${version}"
+        mkdir -p "$install_dir"
+        mv "$binary_name" "$install_dir/"
+        if [ "$RUNNER_OS_VALUE" != "Windows" ]; then
+          chmod +x "$install_dir/$binary_name"
+        fi
+        echo "$install_dir" >> "$GITHUB_PATH"
+        echo "::endgroup::"
+
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "Installed sbom-tools v${version}"
+
+    # ── Step 5: Run sbom-tools ───────────────────────────────────────────
+    # SECURITY INVARIANT: ZERO ${{ }} expressions in the run: block.
+    # Command built as a bash array and executed directly (no eval, no string
+    # interpolation). Each argument is a separate array element, preventing
+    # shell interpretation of metacharacters even if validation is bypassed.
+    - name: Run sbom-tools
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_ARGS: ${{ inputs.args }}
+        INPUT_FAIL_ON_VULN: ${{ inputs.fail-on-vuln }}
+        INPUT_FAIL_ON_CHANGE: ${{ inputs.fail-on-change }}
+        INPUT_FAIL_ON_VEX_GAP: ${{ inputs.fail-on-vex-gap }}
+        INPUT_ENRICH_VULNS: ${{ inputs.enrich-vulns }}
+        INPUT_OUTPUT_FORMAT: ${{ inputs.output-format }}
+        INPUT_OUTPUT_FILE: ${{ inputs.output-file }}
+        INPUT_MIN_SCORE: ${{ inputs.min-score }}
+        INPUT_STANDARD: ${{ inputs.standard }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+      run: |
+        # Build argument array — each value is a discrete array element
+        args=("$INPUT_COMMAND")
+
+        if [ "$INPUT_FAIL_ON_VULN" = "true" ]; then
+          args+=("--fail-on-vuln")
+        fi
+        if [ "$INPUT_FAIL_ON_CHANGE" = "true" ]; then
+          args+=("--fail-on-change")
+        fi
+        if [ "$INPUT_FAIL_ON_VEX_GAP" = "true" ]; then
+          args+=("--fail-on-vex-gap")
+        fi
+        if [ "$INPUT_ENRICH_VULNS" = "true" ]; then
+          args+=("--enrich-vulns")
+        fi
+
+        if [ -n "$INPUT_OUTPUT_FORMAT" ]; then
+          args+=("-o" "$INPUT_OUTPUT_FORMAT")
+        fi
+        if [ -n "$INPUT_OUTPUT_FILE" ]; then
+          args+=("-O" "$INPUT_OUTPUT_FILE")
+        fi
+
+        if [ -n "$INPUT_MIN_SCORE" ]; then
+          args+=("--min-score" "$INPUT_MIN_SCORE")
+        fi
+        if [ -n "$INPUT_STANDARD" ]; then
+          args+=("--standard" "$INPUT_STANDARD")
+        fi
+        if [ -n "$INPUT_PROFILE" ]; then
+          args+=("--profile" "$INPUT_PROFILE")
+        fi
+
+        # Positional args: split by whitespace into array elements
+        if [ -n "$INPUT_ARGS" ]; then
+          read -ra extra_args <<< "$INPUT_ARGS"
+          args+=("${extra_args[@]}")
+        fi
+
+        echo "::group::Running: sbom-tools ${args[*]}"
+        set +e
+        sbom-tools "${args[@]}"
+        exit_code=$?
+        set -e
+        echo "::endgroup::"
+
+        echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
+
+        case $exit_code in
+          0) echo "sbom-tools completed successfully" ;;
+          1) echo "::warning::SBOM changes detected (exit code 1)" ;;
+          2) echo "::error::New vulnerabilities introduced (exit code 2)" ;;
+          4) echo "::error::VEX coverage gaps found (exit code 4)" ;;
+          *) echo "::error::sbom-tools failed with exit code $exit_code" ; exit $exit_code ;;
+        esac
