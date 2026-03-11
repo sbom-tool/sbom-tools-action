@@ -2,6 +2,10 @@
 
 Install and run [sbom-tools](https://github.com/sbom-tool/sbom-tools) in your GitHub Actions workflows for semantic SBOM diff, validation, and quality scoring.
 
+<p align="center">
+  <img src="assets/architecture.png" alt="sbom-tools-action architecture" width="700">
+</p>
+
 Downloads pre-built binaries with SHA-256 checksum verification and optional [SLSA](https://slsa.dev/) provenance verification. Supports Linux (x86_64, ARM64), macOS (x86_64, ARM64), and Windows (x86_64).
 
 ## Quick start
