@@ -202,9 +202,13 @@ runs:
           fi
         done
 
-        # ── Working directory: reject shell metacharacters ──
+        # ── Working directory: reject shell metacharacters and path traversal ──
         if [[ "$INPUT_WORKING_DIR" =~ [\;\|\&\$\`\(\)\{\}\<\>\!\#\\\'] ]] || [[ "$INPUT_WORKING_DIR" == *'"'* ]]; then
           echo "::error::Invalid working-directory: contains shell metacharacters"
+          errors=$((errors + 1))
+        fi
+        if [[ "$INPUT_WORKING_DIR" == /* ]] || [[ "$INPUT_WORKING_DIR" == *..* ]]; then
+          echo "::error::Invalid working-directory: must be relative and cannot contain '..'"
           errors=$((errors + 1))
         fi
 
@@ -274,8 +278,9 @@ runs:
 
         # ── SHA-256 verification ──
         # Extract the hash for our specific archive from the combined checksums file.
-        # Matches on the archive filename to get the correct hash.
-        expected_hash=$(grep -F "$archive" checksums.sha256 | awk '{print $1}')
+        # Anchored match: space(s) or * then exact filename at end of line,
+        # preventing substring collisions (e.g. .tar.gz vs .tar.gz.sig).
+        expected_hash=$(grep -E "[[:space:]*]${archive}$" checksums.sha256 | awk '{print $1}' | head -1)
         if [ -z "$expected_hash" ]; then
           echo "::error::Archive '$archive' not found in checksums.sha256"
           exit 1
@@ -327,16 +332,38 @@ runs:
             if ! command -v slsa-verifier >/dev/null 2>&1; then
               echo "Installing slsa-verifier..."
               slsa_ver="2.7.0"
-              case "$RUNNER_OS_VALUE" in
-                Linux)  slsa_os="linux" ; slsa_arch="amd64" ;;
-                macOS)  slsa_os="darwin" ; slsa_arch="arm64" ;;
-                *)      slsa_os="" ;;
+              # Map platform to slsa-verifier binary name and pinned SHA-256
+              case "${RUNNER_OS_VALUE}-${target}" in
+                Linux-linux-x86_64)
+                  slsa_bin="slsa-verifier-linux-amd64"
+                  slsa_expected="499befb675efcca9001afe6e5156891b91e71f9c07ab120a8943979f85cc82e6" ;;
+                Linux-linux-aarch64)
+                  slsa_bin="slsa-verifier-linux-arm64"
+                  slsa_expected="dc3845d7605f666a0938389c1c5735230e50b32a547867ffd351fb14df928167" ;;
+                macOS-macos-x86_64)
+                  slsa_bin="slsa-verifier-darwin-amd64"
+                  slsa_expected="36694b43ab23be234add09272e5faf77349d7e267bf65c01dc9bcdf58c4f496e" ;;
+                macOS-macos-aarch64)
+                  slsa_bin="slsa-verifier-darwin-arm64"
+                  slsa_expected="84d9122ce12e0c79080844285fd5c4976407ed3463e434a1b21b0979c46b1e55" ;;
+                *)  slsa_bin="" ;;
               esac
-              if [ -n "$slsa_os" ]; then
-                slsa_url="https://github.com/slsa-framework/slsa-verifier/releases/download/v${slsa_ver}/slsa-verifier-${slsa_os}-${slsa_arch}"
+              if [ -n "$slsa_bin" ]; then
+                slsa_url="https://github.com/slsa-framework/slsa-verifier/releases/download/v${slsa_ver}/${slsa_bin}"
                 curl -fsSL --retry 3 -o slsa-verifier "$slsa_url"
-                chmod +x slsa-verifier
-                export PATH="$PWD:$PATH"
+                # Verify slsa-verifier binary integrity before trusting it
+                if command -v sha256sum >/dev/null 2>&1; then
+                  slsa_actual=$(sha256sum slsa-verifier | awk '{print $1}')
+                else
+                  slsa_actual=$(shasum -a 256 slsa-verifier | awk '{print $1}')
+                fi
+                if [ "$slsa_expected" != "$slsa_actual" ]; then
+                  echo "::warning::slsa-verifier checksum mismatch (expected $slsa_expected, got $slsa_actual). Skipping SLSA verification."
+                  slsa_bin=""
+                else
+                  chmod +x slsa-verifier
+                  export PATH="$PWD:$PATH"
+                fi
               fi
             fi
 
