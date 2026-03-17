@@ -1,5 +1,5 @@
 name: 'sbom-tools'
-description: 'Install and run sbom-tools for SBOM diff, validation, and quality scoring'
+description: 'Install and run sbom-tools for SBOM diff, validation, quality scoring, enrichment, verification, and license checking'
 author: 'sbom-tool'
 
 branding:
@@ -8,11 +8,11 @@ branding:
 
 inputs:
   version:
-    description: 'sbom-tools version to install (e.g. "0.1.14", "latest")'
+    description: 'sbom-tools version to install (e.g. "0.1.16", "latest")'
     required: false
     default: 'latest'
   command:
-    description: 'Command to run: diff, validate, quality, view, query'
+    description: 'Command to run: diff, validate, quality, view, query, enrich, verify, license-check, vex'
     required: true
   args:
     description: 'Arguments to pass to the command (space-separated file paths)'
@@ -27,7 +27,7 @@ inputs:
     required: false
     default: 'false'
   fail-on-vex-gap:
-    description: 'Exit non-zero if vulnerabilities lack VEX statements (diff only)'
+    description: 'Exit non-zero if vulnerabilities lack VEX statements (diff and vex commands)'
     required: false
     default: 'false'
   enrich-vulns:
@@ -35,7 +35,7 @@ inputs:
     required: false
     default: 'false'
   output-format:
-    description: 'Output format: json, sarif, markdown, summary, table, csv, html'
+    description: 'Output format: json, sarif, markdown, summary, table, csv, html, side-by-side'
     required: false
     default: ''
   output-file:
@@ -59,7 +59,7 @@ inputs:
     required: false
     default: '.'
   verify-slsa:
-    description: 'Verify SLSA provenance of downloaded binary (requires slsa-verifier)'
+    description: 'Verify provenance of downloaded binary (Sigstore bundle or SLSA)'
     required: false
     default: 'true'
 
@@ -84,11 +84,11 @@ runs:
       shell: bash
       run: |
         case "${{ runner.os }}-${{ runner.arch }}" in
-          Linux-X64)   target="x86_64-unknown-linux-gnu" ; ext="tar.gz" ;;
-          Linux-ARM64)  target="aarch64-unknown-linux-gnu" ; ext="tar.gz" ;;
-          macOS-X64)    target="x86_64-apple-darwin" ; ext="tar.gz" ;;
-          macOS-ARM64)  target="aarch64-apple-darwin" ; ext="tar.gz" ;;
-          Windows-X64)  target="x86_64-pc-windows-msvc" ; ext="zip" ;;
+          Linux-X64)   target="linux-x86_64" ; ext="tar.gz" ;;
+          Linux-ARM64)  target="linux-aarch64" ; ext="tar.gz" ;;
+          macOS-X64)    target="macos-x86_64" ; ext="tar.gz" ;;
+          macOS-ARM64)  target="macos-aarch64" ; ext="tar.gz" ;;
+          Windows-X64)  target="windows-x86_64" ; ext="zip" ;;
           *)
             echo "::error::Unsupported platform: ${{ runner.os }}-${{ runner.arch }}"
             exit 1
@@ -130,9 +130,9 @@ runs:
 
         # ── Command: strict whitelist ──
         case "$INPUT_COMMAND" in
-          diff|validate|quality|view|query) ;;
+          diff|validate|quality|view|query|enrich|verify|license-check|vex) ;;
           *)
-            echo "::error::Invalid command: '$INPUT_COMMAND'. Must be: diff, validate, quality, view, query"
+            echo "::error::Invalid command: '$INPUT_COMMAND'. Must be: diff, validate, quality, view, query, enrich, verify, license-check, vex"
             errors=$((errors + 1))
             ;;
         esac
@@ -267,16 +267,19 @@ runs:
         trap 'rm -rf "$work_dir"' EXIT
         cd "$work_dir"
 
-        # ── Download binary archive + checksum ──
+        # ── Download binary archive + checksums ──
         echo "::group::Downloading sbom-tools v${version} for ${target}"
         curl -fsSL --retry 3 -o "$archive" "${base_url}/${archive}"
-        curl -fsSL --retry 3 -o "${archive}.sha256" "${base_url}/${archive}.sha256"
+        curl -fsSL --retry 3 -o "checksums.sha256" "${base_url}/checksums.sha256"
 
         # ── SHA-256 verification ──
-        # Extract only the hash (first field), ignoring the filename field.
-        # This prevents an attacker from crafting a checksum file that references
-        # a different file than the one we downloaded.
-        expected_hash=$(awk '{print $1}' "${archive}.sha256")
+        # Extract the hash for our specific archive from the combined checksums file.
+        # Matches on the archive filename to get the correct hash.
+        expected_hash=$(grep -F "$archive" checksums.sha256 | awk '{print $1}')
+        if [ -z "$expected_hash" ]; then
+          echo "::error::Archive '$archive' not found in checksums.sha256"
+          exit 1
+        fi
 
         # Validate hash looks like a hex SHA-256 (exactly 64 hex chars)
         if [[ ! "$expected_hash" =~ ^[0-9a-f]{64}$ ]]; then
@@ -299,16 +302,28 @@ runs:
         fi
         echo "SHA-256 verified: $actual_hash"
 
-        # ── SLSA provenance verification ──
+        # ── Provenance verification ──
         slsa_verified="false"
         if [ "$INPUT_VERIFY_SLSA" = "true" ]; then
-          echo "Attempting SLSA provenance verification..."
+          echo "Attempting provenance verification..."
 
-          # Download provenance attestation from the release
-          if curl -fsSL --retry 3 -o "sbom-tools.intoto.jsonl" \
+          # Try Sigstore bundle verification first (v0.1.16+)
+          bundle="${archive}.bundle"
+          if curl -fsSL --retry 3 -o "$bundle" "${base_url}/${bundle}" 2>/dev/null; then
+            # Use gh attestation verify with the Sigstore bundle
+            if gh attestation verify "$archive" \
+              --bundle-from-oci=false \
+              --repo sbom-tool/sbom-tools \
+              --bundle "$bundle" 2>&1; then
+              echo "Sigstore provenance verified successfully"
+              slsa_verified="true"
+            else
+              echo "::warning::Sigstore bundle verification failed. SHA-256 checksum was verified."
+            fi
+          # Fall back to SLSA provenance (older releases)
+          elif curl -fsSL --retry 3 -o "sbom-tools.intoto.jsonl" \
             "${base_url}/sbom-tools.intoto.jsonl" 2>/dev/null; then
 
-            # Install slsa-verifier if not present
             if ! command -v slsa-verifier >/dev/null 2>&1; then
               echo "Installing slsa-verifier..."
               slsa_ver="2.7.0"
@@ -326,7 +341,6 @@ runs:
             fi
 
             if command -v slsa-verifier >/dev/null 2>&1; then
-              # Verify the archive against the provenance
               if slsa-verifier verify-artifact "$archive" \
                 --provenance-path "sbom-tools.intoto.jsonl" \
                 --source-uri "github.com/sbom-tool/sbom-tools" \
@@ -334,13 +348,13 @@ runs:
                 echo "SLSA provenance verified successfully"
                 slsa_verified="true"
               else
-                echo "::warning::SLSA provenance verification failed — binary may not have provenance yet. SHA-256 checksum was verified."
+                echo "::warning::SLSA provenance verification failed. SHA-256 checksum was verified."
               fi
             else
               echo "::warning::slsa-verifier not available on this platform. SHA-256 checksum was verified."
             fi
           else
-            echo "::warning::No SLSA provenance found for v${version}. SHA-256 checksum was verified."
+            echo "::warning::No provenance found for v${version}. SHA-256 checksum was verified."
           fi
         fi
         echo "slsa-verified=$slsa_verified" >> "$GITHUB_OUTPUT"

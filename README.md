@@ -1,12 +1,12 @@
 # sbom-tools GitHub Action
 
-Install and run [sbom-tools](https://github.com/sbom-tool/sbom-tools) in your GitHub Actions workflows for semantic SBOM diff, validation, and quality scoring.
+Install and run [sbom-tools](https://github.com/sbom-tool/sbom-tools) in your GitHub Actions workflows for semantic SBOM diff, validation, quality scoring, enrichment, verification, and license checking.
 
 <p align="center">
   <img src="assets/architecture.png" alt="sbom-tools-action architecture" width="1200">
 </p>
 
-Downloads pre-built binaries with SHA-256 checksum verification and optional [SLSA](https://slsa.dev/) provenance verification. Supports Linux (x86_64, ARM64), macOS (x86_64, ARM64), and Windows (x86_64).
+Downloads pre-built binaries with SHA-256 checksum verification and optional [Sigstore](https://www.sigstore.dev/)/[SLSA](https://slsa.dev/) provenance verification. Supports Linux (x86_64, ARM64), macOS (x86_64, ARM64), and Windows (x86_64).
 
 ## Quick start
 
@@ -25,20 +25,20 @@ Downloads pre-built binaries with SHA-256 checksum verification and optional [SL
 
 | Input | Description | Default |
 |-------|-------------|---------|
-| `version` | sbom-tools version (`"0.1.14"` or `"latest"`) | `latest` |
-| `command` | Command to run: `diff`, `validate`, `quality`, `view`, `query` | *required* |
+| `version` | sbom-tools version (`"0.1.16"` or `"latest"`) | `latest` |
+| `command` | Command to run: `diff`, `validate`, `quality`, `view`, `query`, `enrich`, `verify`, `license-check`, `vex` | *required* |
 | `args` | Arguments to pass to the command | `""` |
 | `fail-on-vuln` | Exit non-zero on new vulnerabilities (diff) | `false` |
 | `fail-on-change` | Exit non-zero on any SBOM changes (diff) | `false` |
-| `fail-on-vex-gap` | Exit non-zero on VEX coverage gaps (diff) | `false` |
+| `fail-on-vex-gap` | Exit non-zero on VEX coverage gaps (diff, vex) | `false` |
 | `enrich-vulns` | Enrich with OSV/KEV vulnerability data | `false` |
-| `output-format` | Output format: `json`, `sarif`, `markdown`, `summary`, `table`, `csv`, `html` | `""` |
+| `output-format` | Output format: `json`, `sarif`, `markdown`, `summary`, `table`, `csv`, `html`, `side-by-side` | `""` |
 | `output-file` | Write output to file | `""` |
 | `min-score` | Minimum quality score threshold (quality) | `""` |
 | `standard` | Compliance standard(s): `ntia`, `cra`, `fda`, `ssdf`, `eo14028` | `""` |
-| `profile` | Quality profile: `minimal`, `standard`, `security`, `comprehensive`, `cra` | `""` |
+| `profile` | Quality profile: `minimal`, `standard`, `security`, `comprehensive`, `cra`, `license-compliance` | `""` |
 | `working-directory` | Working directory | `.` |
-| `verify-slsa` | Verify SLSA provenance of downloaded binary | `true` |
+| `verify-slsa` | Verify provenance of downloaded binary (Sigstore or SLSA) | `true` |
 
 ## Outputs
 
@@ -54,17 +54,18 @@ This action implements multiple layers of binary verification:
 
 1. **SHA-256 checksum** (always) -- verifies the downloaded archive matches the checksum published alongside the release. The checksum is compared by hash value only, not by filename (preventing filename-based attacks in checksum files).
 
-2. **SLSA provenance** (enabled by default) -- downloads the [SLSA Level 3](https://slsa.dev/spec/v1.0/levels) provenance attestation from the release and verifies it using [slsa-verifier](https://github.com/slsa-framework/slsa-verifier). This cryptographically proves the binary was built by the sbom-tools CI pipeline from the expected source commit.
+2. **Provenance verification** (enabled by default) -- verifies [Sigstore](https://www.sigstore.dev/) bundles via `gh attestation verify` (v0.1.16+), falling back to [SLSA Level 3](https://slsa.dev/spec/v1.0/levels) provenance via [slsa-verifier](https://github.com/slsa-framework/slsa-verifier) for older releases. This cryptographically proves the binary was built by the sbom-tools CI pipeline from the expected source commit.
 
 3. **Input validation** -- all inputs are validated against strict whitelists or regex patterns before use. Shell metacharacters are rejected.
 
 4. **No expression injection** -- user inputs are never interpolated via `${{ }}` in `run:` blocks. All values flow through environment variables exclusively.
 
-### SLSA verification behavior
+### Provenance verification behavior
 
 | Scenario | Result |
 |----------|--------|
-| Provenance found + verifies | `slsa-verified=true` |
+| Sigstore bundle found + verifies | `slsa-verified=true` |
+| Sigstore fails, SLSA fallback verifies | `slsa-verified=true` |
 | Provenance found + fails verification | Warning, continues (SHA-256 was verified) |
 | No provenance in release | Warning, continues (SHA-256 was verified) |
 | `verify-slsa: false` | Skipped entirely |
@@ -162,7 +163,7 @@ jobs:
 ```yaml
 - uses: sbom-tool/sbom-tools-action@v1
   with:
-    version: '0.1.14'
+    version: '0.1.16'
     command: quality
     args: sbom.json
 ```
