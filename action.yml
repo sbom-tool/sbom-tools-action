@@ -1,4 +1,4 @@
-name: 'sbom-tools'
+name: 'sbom-tools-action'
 description: 'Install and run sbom-tools for SBOM diff, validation, quality scoring, enrichment, verification, and license checking'
 author: 'sbom-tool'
 
