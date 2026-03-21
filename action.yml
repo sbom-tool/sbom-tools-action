@@ -59,9 +59,13 @@ inputs:
     required: false
     default: '.'
   verify-slsa:
-    description: 'Verify provenance of downloaded binary (Sigstore bundle or SLSA)'
+    description: '(Deprecated — use verify-provenance) Verify provenance of downloaded binary'
     required: false
     default: 'true'
+  verify-provenance:
+    description: 'Provenance verification mode: "warn" (default, soft-fail), "require" (hard-fail), "off" (skip)'
+    required: false
+    default: ''
 
 outputs:
   exit-code:
@@ -119,6 +123,7 @@ runs:
         INPUT_ENRICH_VULNS: ${{ inputs.enrich-vulns }}
         INPUT_WORKING_DIR: ${{ inputs.working-directory }}
         INPUT_VERIFY_SLSA: ${{ inputs.verify-slsa }}
+        INPUT_VERIFY_PROVENANCE: ${{ inputs.verify-provenance }}
       run: |
         errors=0
 
@@ -156,10 +161,16 @@ runs:
           esac
         fi
 
-        # ── Output file: reject shell metacharacters ──
+        # ── Output file: reject shell metacharacters and path traversal ──
         if [[ "$INPUT_OUTPUT_FILE" =~ [\;\|\&\$\`\(\)\{\}\<\>\!\#\\\'] ]] || [[ "$INPUT_OUTPUT_FILE" == *'"'* ]]; then
           echo "::error::Invalid output-file: contains shell metacharacters"
           errors=$((errors + 1))
+        fi
+        if [ -n "$INPUT_OUTPUT_FILE" ]; then
+          if [[ "$INPUT_OUTPUT_FILE" == /* ]] || [[ "$INPUT_OUTPUT_FILE" == *..* ]]; then
+            echo "::error::Invalid output-file: must be relative and cannot contain '..'"
+            errors=$((errors + 1))
+          fi
         fi
 
         # ── Min-score: numeric only ──
@@ -188,6 +199,17 @@ runs:
             minimal|standard|security|comprehensive|cra|license-compliance) ;;
             *)
               echo "::error::Invalid profile: '$INPUT_PROFILE'"
+              errors=$((errors + 1))
+              ;;
+          esac
+        fi
+
+        # ── Verify-provenance: strict whitelist (tri-state) ──
+        if [ -n "$INPUT_VERIFY_PROVENANCE" ]; then
+          case "$INPUT_VERIFY_PROVENANCE" in
+            warn|require|off) ;;
+            *)
+              echo "::error::Invalid verify-provenance: '$INPUT_VERIFY_PROVENANCE'. Must be: warn, require, off"
               errors=$((errors + 1))
               ;;
           esac
@@ -248,7 +270,8 @@ runs:
     # - RESOLVED_VERSION: from step output (validated semver)
     # - RESOLVED_TARGET/EXT: from platform detection (hardcoded values)
     # - RUNNER_OS_VALUE: GitHub-controlled constant
-    # - INPUT_VERIFY_SLSA: validated boolean
+    # - INPUT_VERIFY_SLSA: validated boolean (deprecated, backward compat)
+    # - INPUT_VERIFY_PROVENANCE: validated tri-state (warn/require/off)
     - name: Install sbom-tools
       id: install
       shell: bash
@@ -258,6 +281,7 @@ runs:
         RESOLVED_EXT: ${{ steps.platform.outputs.ext }}
         RUNNER_OS_VALUE: ${{ runner.os }}
         INPUT_VERIFY_SLSA: ${{ inputs.verify-slsa }}
+        INPUT_VERIFY_PROVENANCE: ${{ inputs.verify-provenance }}
         GH_TOKEN: ${{ github.token }}
       run: |
         version="$RESOLVED_VERSION"
@@ -265,6 +289,17 @@ runs:
         ext="$RESOLVED_EXT"
         archive="sbom-tools-${target}.${ext}"
         base_url="https://github.com/sbom-tool/sbom-tools/releases/download/v${version}"
+
+        # ── Resolve provenance mode ──
+        # verify-provenance takes precedence; fall back to verify-slsa for backward compat.
+        provenance_mode="$INPUT_VERIFY_PROVENANCE"
+        if [ -z "$provenance_mode" ]; then
+          if [ "$INPUT_VERIFY_SLSA" = "true" ]; then
+            provenance_mode="warn"
+          else
+            provenance_mode="off"
+          fi
+        fi
 
         # ── Isolated temp directory ──
         work_dir=$(mktemp -d)
@@ -308,9 +343,11 @@ runs:
         echo "SHA-256 verified: $actual_hash"
 
         # ── Provenance verification ──
+        # provenance_mode: "warn" = soft-fail, "require" = hard-fail, "off" = skip
         slsa_verified="false"
-        if [ "$INPUT_VERIFY_SLSA" = "true" ]; then
-          echo "Attempting provenance verification..."
+        provenance_failed="false"
+        if [ "$provenance_mode" != "off" ]; then
+          echo "Attempting provenance verification (mode: ${provenance_mode})..."
 
           # Try Sigstore bundle verification first (v0.1.16+)
           bundle="${archive}.bundle"
@@ -324,6 +361,7 @@ runs:
               slsa_verified="true"
             else
               echo "::warning::Sigstore bundle verification failed. SHA-256 checksum was verified."
+              provenance_failed="true"
             fi
           # Fall back to SLSA provenance (older releases)
           elif curl -fsSL --retry 3 -o "sbom-tools.intoto.jsonl" \
@@ -360,15 +398,21 @@ runs:
                 if [ "$slsa_expected" != "$slsa_actual" ]; then
                   echo "::warning::slsa-verifier checksum mismatch (expected $slsa_expected, got $slsa_actual). Skipping SLSA verification."
                   slsa_bin=""
+                  provenance_failed="true"
                 else
                   chmod +x slsa-verifier
                   export PATH="$PWD:$PATH"
                 fi
+              else
+                provenance_failed="true"
               fi
             fi
 
             if command -v slsa-verifier >/dev/null 2>&1; then
-              if slsa-verifier verify-artifact "$archive" \
+              # SECURITY: Unset GH_TOKEN — slsa-verifier verifies locally and
+              # does not need API access. Prevents credential exfiltration if
+              # the pinned binary were ever compromised.
+              if GH_TOKEN="" slsa-verifier verify-artifact "$archive" \
                 --provenance-path "sbom-tools.intoto.jsonl" \
                 --source-uri "github.com/sbom-tool/sbom-tools" \
                 --source-tag "v${version}" 2>&1; then
@@ -376,30 +420,46 @@ runs:
                 slsa_verified="true"
               else
                 echo "::warning::SLSA provenance verification failed. SHA-256 checksum was verified."
+                provenance_failed="true"
               fi
             else
               echo "::warning::slsa-verifier not available on this platform. SHA-256 checksum was verified."
+              provenance_failed="true"
             fi
           else
             echo "::warning::No provenance found for v${version}. SHA-256 checksum was verified."
+            provenance_failed="true"
+          fi
+
+          # In "require" mode, hard-fail if provenance could not be verified
+          if [ "$provenance_mode" = "require" ] && [ "$slsa_verified" != "true" ]; then
+            echo "::error::Provenance verification failed and verify-provenance is set to 'require'. Aborting."
+            echo "::error::Set verify-provenance to 'warn' to continue with SHA-256 verification only."
+            exit 1
           fi
         fi
         echo "slsa-verified=$slsa_verified" >> "$GITHUB_OUTPUT"
 
-        # ── Extract archive ──
+        # ── Extract archive into isolated subdirectory ──
+        # Prevents tar/zip path traversal (Zip Slip) from writing outside work_dir.
+        mkdir extract_dir
         if [ "$ext" = "tar.gz" ]; then
-          tar xzf "$archive"
+          tar xzf "$archive" -C extract_dir
         else
-          unzip -q "$archive"
+          unzip -q "$archive" -d extract_dir
         fi
 
-        # ── Verify extracted binary exists before moving ──
+        # ── Verify extracted binary exists and is not a symlink ──
         if [ "$RUNNER_OS_VALUE" = "Windows" ]; then
           binary_name="sbom-tools.exe"
         else
           binary_name="sbom-tools"
         fi
-        if [ ! -f "$binary_name" ]; then
+        if [ -L "extract_dir/$binary_name" ]; then
+          echo "::error::Extracted binary is a symlink — rejecting for security"
+          exit 1
+        fi
+        if [ ! -f "extract_dir/$binary_name" ]; then
           echo "::error::Expected binary '$binary_name' not found in archive"
           exit 1
         fi
@@ -407,7 +467,7 @@ runs:
         # ── Install to tool cache ──
         install_dir="${RUNNER_TOOL_CACHE:-/tmp}/sbom-tools/${version}"
         mkdir -p "$install_dir"
-        mv "$binary_name" "$install_dir/"
+        mv "extract_dir/$binary_name" "$install_dir/"
         if [ "$RUNNER_OS_VALUE" != "Windows" ]; then
           chmod +x "$install_dir/$binary_name"
         fi
@@ -472,8 +532,10 @@ runs:
           args+=("--profile" "$INPUT_PROFILE")
         fi
 
-        # Positional args: split by whitespace into array elements
+        # Positional args: split by whitespace into array elements.
+        # The "--" separator prevents values from being interpreted as flags.
         if [ -n "$INPUT_ARGS" ]; then
+          args+=("--")
           read -ra extra_args <<< "$INPUT_ARGS"
           args+=("${extra_args[@]}")
         fi
