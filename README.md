@@ -11,7 +11,8 @@ Downloads pre-built binaries with SHA-256 checksum verification and optional [Si
 ## Quick start
 
 ```yaml
-- uses: sbom-tool/sbom-tools-action@v1
+# Pin to commit SHA for maximum supply chain security (recommended)
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
   with:
     command: diff
     args: old.json new.json
@@ -38,7 +39,8 @@ Downloads pre-built binaries with SHA-256 checksum verification and optional [Si
 | `standard` | Compliance standard(s): `ntia`, `cra`, `fda`, `ssdf`, `eo14028` | `""` |
 | `profile` | Quality profile: `minimal`, `standard`, `security`, `comprehensive`, `cra`, `license-compliance` | `""` |
 | `working-directory` | Working directory | `.` |
-| `verify-slsa` | Verify provenance of downloaded binary (Sigstore or SLSA) | `true` |
+| `verify-provenance` | Provenance verification mode: `warn` (soft-fail), `require` (hard-fail), `off` (skip) | `require` |
+| `verify-slsa` | *(Deprecated — use `verify-provenance`)* Verify provenance of downloaded binary | `true` |
 
 ## Outputs
 
@@ -50,39 +52,62 @@ Downloads pre-built binaries with SHA-256 checksum verification and optional [Si
 
 ## Security
 
-This action implements multiple layers of binary verification:
+### Pin to commit SHA
+
+Always pin this action to a **commit SHA**, not a version tag. Tags are mutable pointers that can be force-pushed by an attacker with write access. SHAs are immutable.
+
+```yaml
+# Recommended — immune to tag poisoning:
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
+
+# NOT recommended — vulnerable to tag poisoning:
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0.2.0
+```
+
+### Binary verification
+
+This action implements multiple layers of verification for the downloaded `sbom-tools` binary:
 
 1. **SHA-256 checksum** (always) -- verifies the downloaded archive matches the checksum published alongside the release. The checksum is compared by hash value only, not by filename (preventing filename-based attacks in checksum files).
 
-2. **Provenance verification** (enabled by default) -- verifies [Sigstore](https://www.sigstore.dev/) bundles via `gh attestation verify` (v0.1.16+), falling back to [SLSA Level 3](https://slsa.dev/spec/v1.0/levels) provenance via [slsa-verifier](https://github.com/slsa-framework/slsa-verifier) for older releases. This cryptographically proves the binary was built by the sbom-tools CI pipeline from the expected source commit.
+2. **Provenance verification** (required by default) -- verifies [Sigstore](https://www.sigstore.dev/) bundles via `gh attestation verify` (v0.1.16+), falling back to [SLSA Level 3](https://slsa.dev/spec/v1.0/levels) provenance via [slsa-verifier](https://github.com/slsa-framework/slsa-verifier) for older releases. This cryptographically proves the binary was built by the sbom-tools CI pipeline from the expected source commit.
 
-3. **Input validation** -- all inputs are validated against strict whitelists or regex patterns before use. Shell metacharacters are rejected.
+3. **Input validation** -- all inputs are validated against strict whitelists or regex patterns before use. Shell metacharacters are rejected. Path traversal (`..`) is blocked for `working-directory` and `output-file`.
 
 4. **No expression injection** -- user inputs are never interpolated via `${{ }}` in `run:` blocks. All values flow through environment variables exclusively.
 
-### Provenance verification behavior
+5. **Archive extraction safety** -- archives extract into an isolated subdirectory to prevent Zip Slip / tar path traversal. Symlinked binaries are rejected.
 
-| Scenario | Result |
-|----------|--------|
-| Sigstore bundle found + verifies | `slsa-verified=true` |
-| Sigstore fails, SLSA fallback verifies | `slsa-verified=true` |
-| Provenance found + fails verification | Warning, continues (SHA-256 was verified) |
-| No provenance in release | Warning, continues (SHA-256 was verified) |
-| `verify-slsa: false` | Skipped entirely |
+### Provenance verification modes
 
-To require SLSA verification (fail if not verified):
+The `verify-provenance` input controls how provenance failures are handled:
+
+| Mode | Behavior |
+|------|----------|
+| `require` (default) | Hard-fail if provenance cannot be verified. Blocks compromised releases. |
+| `warn` | Warn but continue if provenance fails. SHA-256 is still enforced. |
+| `off` | Skip provenance verification entirely. |
+
+| Scenario | `require` | `warn` |
+|----------|-----------|--------|
+| Sigstore bundle verifies | `slsa-verified=true` | `slsa-verified=true` |
+| SLSA fallback verifies | `slsa-verified=true` | `slsa-verified=true` |
+| Provenance fails | **Step fails** | Warning, continues |
+| No provenance in release | **Step fails** | Warning, continues |
 
 ```yaml
-- uses: sbom-tool/sbom-tools-action@v1
-  id: sbom
+# Default: hard-fail on provenance failure (recommended)
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
   with:
     command: quality
     args: sbom.json
 
-- if: steps.sbom.outputs.slsa-verified != 'true'
-  run: |
-    echo "::error::SLSA provenance verification failed"
-    exit 1
+# Opt-in to soft-fail for older releases without provenance
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
+  with:
+    command: quality
+    args: sbom.json
+    verify-provenance: warn
 ```
 
 ## Examples
@@ -108,7 +133,7 @@ jobs:
         run: git show HEAD~1:sbom.json > /tmp/old-sbom.json
 
       - name: Diff SBOM
-        uses: sbom-tool/sbom-tools-action@v1
+        uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
         with:
           command: diff
           args: /tmp/old-sbom.json sbom.json
@@ -127,7 +152,7 @@ jobs:
 ### Quality scoring
 
 ```yaml
-- uses: sbom-tool/sbom-tools-action@v1
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
   with:
     command: quality
     args: sbom.json
@@ -138,7 +163,7 @@ jobs:
 ### CRA compliance validation
 
 ```yaml
-- uses: sbom-tool/sbom-tools-action@v1
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
   with:
     command: validate
     args: sbom.json
@@ -150,7 +175,7 @@ jobs:
 ### VEX coverage gating
 
 ```yaml
-- uses: sbom-tool/sbom-tools-action@v1
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
   with:
     command: diff
     args: old.json new.json
@@ -161,7 +186,7 @@ jobs:
 ### Pin a specific version
 
 ```yaml
-- uses: sbom-tool/sbom-tools-action@v1
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
   with:
     version: '0.1.16'
     command: quality
@@ -182,7 +207,7 @@ The action maps sbom-tools exit codes to GitHub annotations:
 Exit codes 1, 2, and 4 are captured in the `exit-code` output but do **not** fail the step, so you can use conditional logic:
 
 ```yaml
-- uses: sbom-tool/sbom-tools-action@v1
+- uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
   id: sbom
   with:
     command: diff

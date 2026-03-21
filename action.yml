@@ -63,9 +63,9 @@ inputs:
     required: false
     default: 'true'
   verify-provenance:
-    description: 'Provenance verification mode: "warn" (default, soft-fail), "require" (hard-fail), "off" (skip)'
+    description: 'Provenance verification mode: "require" (default, hard-fail), "warn" (soft-fail), "off" (skip)'
     required: false
-    default: ''
+    default: 'require'
 
 outputs:
   exit-code:
