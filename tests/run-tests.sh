@@ -552,10 +552,12 @@ test_install_platforms() {
 test_install_unsupported_platform() {
   local spec
   for spec in Linux:ARM Windows:ARM64 macOS:X86 FreeBSD:X64; do
-    run_action "$STUB_PATH" INPUT_VERSION=0.4.0 INPUT_COMMAND=validate "RUNNER_OS=${spec%:*}" "RUNNER_ARCH=${spec#*:}"
+    : >"$SB/gh.calls"
+    run_action "$STUB_PATH" INPUT_VERSION=latest INPUT_COMMAND=validate "RUNNER_OS=${spec%:*}" "RUNNER_ARCH=${spec#*:}"
     assert_failed_with 3
     assert_contains "$SETUP_LOG" "No prebuilt sbom-tools for ${spec%:*}-${spec#*:}"
     assert_contains "$SETUP_LOG" 'pass its path as binary-path'
+    assert_eq "$(cat "$SB/gh.calls")" '' 'gh calls (fails before resolving latest)'
   done
 }
 

@@ -42,6 +42,8 @@ main() {
     adopt_binary "$IN_BINARY_PATH" || exit 3
     OUT_SLSA_VERIFIED=false
   else
+    # An unsupported runner fails before any network call.
+    detect_platform || exit 3
     resolve_version "$IN_VERSION" || exit 3
     install_release "$RESOLVED_VERSION" "$IN_VERIFY_PROVENANCE" || exit 3
     INSTALLED_VERSION="$RESOLVED_VERSION"
