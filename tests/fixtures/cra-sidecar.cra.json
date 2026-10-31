@@ -1,0 +1,20 @@
+{
+  "securityContact": "security@example.com",
+  "vulnerabilityDisclosureUrl": "https://example.com/security",
+  "supportEndDate": "2031-01-15T00:00:00Z",
+  "manufacturerName": "ExampleCorp",
+  "manufacturerEmail": "legal@example.com",
+  "productName": "example-app",
+  "productVersion": "1.0.0",
+  "ceMarkingReference": "EU-DoC-2026-001",
+  "updateMechanism": "Signed OTA via secure channel",
+  "psirtUrl": "https://example.com/psirt",
+  "earlyWarningContact": "psirt@example.com",
+  "incidentReportContact": "incidents@example.com",
+  "enisaReportingPlatformId": "EU-MFR-12345",
+  "coordinatedDisclosurePolicyUrl": "https://example.com/security/cvd-policy",
+  "riskAssessmentUrl": "https://example.com/docs/risk-assessment-2026.pdf",
+  "riskAssessmentMethodology": "ISO/IEC 27005:2022",
+  "productClass": "important-class-1",
+  "conformityAssessmentRoute": "module-a"
+}

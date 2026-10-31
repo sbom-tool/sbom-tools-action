@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Stand-in for the sbom-tools CLI, used by tests/run-tests.sh and the CI
+# self-test of the Action.
+#
+#   --version            prints "sbom-tools $STUB_VERSION" (default 0.4.0)
+#   otherwise            records its arguments, one per line, in
+#                        $STUB_ARGV_FILE; prints $STUB_STDOUT and $STUB_STDERR;
+#                        writes {} to an --output-file=PATH (unless
+#                        STUB_NO_OUTPUT_FILE=1); exits with $STUB_EXIT, or N
+#                        from an argument containing "stub-exit-N", or 0.
+
+if [ "${1:-}" = --version ]; then
+  echo "sbom-tools ${STUB_VERSION:-0.4.0}"
+  exit 0
+fi
+
+if [ -n "${STUB_ARGV_FILE:-}" ]; then
+  : >"$STUB_ARGV_FILE"
+  for arg in "$@"; do
+    printf '%s\n' "$arg" >>"$STUB_ARGV_FILE"
+  done
+fi
+
+if [ -n "${STUB_STDOUT:-}" ]; then printf '%s\n' "$STUB_STDOUT"; fi
+if [ -n "${STUB_STDERR:-}" ]; then printf '%s\n' "$STUB_STDERR" >&2; fi
+
+code="${STUB_EXIT:-}"
+for arg in "$@"; do
+  case "$arg" in
+    --output-file=*)
+      if [ "${STUB_NO_OUTPUT_FILE:-0}" != 1 ]; then printf '{}\n' >"${arg#--output-file=}"; fi
+      ;;
+    *stub-exit-[0-9]*)
+      if [ -z "${STUB_EXIT:-}" ]; then
+        code="${arg##*stub-exit-}"
+        code="${code%%[!0-9]*}"
+      fi
+      ;;
+  esac
+done
+exit "${code:-0}"

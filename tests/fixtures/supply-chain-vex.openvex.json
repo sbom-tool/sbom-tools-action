@@ -1,0 +1,35 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://example.com/vex/showcase/supply-chain-2026-02-10",
+  "author": "SBOM Tools Test Fixture",
+  "timestamp": "2026-02-10T20:30:00Z",
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "MAL-2025-190832",
+        "aliases": [
+          "GHSA-c2p2-wfqm-c359"
+        ]
+      },
+      "status": "affected",
+      "products": [
+        {
+          "@id": "pkg:npm/axios-builder@1.2.1"
+        }
+      ],
+      "action_statement": "Remove the package immediately and rotate any credentials used during installation."
+    },
+    {
+      "vulnerability": {
+        "name": "GHSA-c2p2-wfqm-c359"
+      },
+      "status": "affected",
+      "products": [
+        {
+          "@id": "pkg:npm/axios-builder@1.2.1"
+        }
+      ],
+      "action_statement": "Remove the package immediately and audit package publication credentials."
+    }
+  ]
+}
