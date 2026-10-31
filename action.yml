@@ -355,85 +355,22 @@ runs:
         if [ "$provenance_mode" != "off" ]; then
           echo "Attempting provenance verification (mode: ${provenance_mode})..."
 
-          # Try Sigstore bundle verification first (v0.1.16+)
-          bundle="${archive}.bundle"
-          if curl -fsSL --retry 3 -o "$bundle" "${base_url}/${bundle}" 2>/dev/null; then
-            # Use gh attestation verify with the Sigstore bundle
-            if gh attestation verify "$archive" \
-              --bundle-from-oci=false \
-              --repo sbom-tool/sbom-tools \
-              --bundle "$bundle" 2>&1; then
-              echo "Sigstore provenance verified successfully"
-              slsa_verified="true"
-            else
-              echo "::warning::Sigstore bundle verification failed. SHA-256 checksum was verified."
-              provenance_failed="true"
-            fi
-          # Fall back to SLSA provenance (older releases)
-          elif curl -fsSL --retry 3 -o "sbom-tools.intoto.jsonl" \
-            "${base_url}/sbom-tools.intoto.jsonl" 2>/dev/null; then
-
-            if ! command -v slsa-verifier >/dev/null 2>&1; then
-              echo "Installing slsa-verifier..."
-              slsa_ver="2.7.0"
-              # Map platform to slsa-verifier binary name and pinned SHA-256
-              case "${RUNNER_OS_VALUE}-${target}" in
-                Linux-linux-x86_64)
-                  slsa_bin="slsa-verifier-linux-amd64"
-                  slsa_expected="499befb675efcca9001afe6e5156891b91e71f9c07ab120a8943979f85cc82e6" ;;
-                Linux-linux-aarch64)
-                  slsa_bin="slsa-verifier-linux-arm64"
-                  slsa_expected="dc3845d7605f666a0938389c1c5735230e50b32a547867ffd351fb14df928167" ;;
-                macOS-macos-x86_64)
-                  slsa_bin="slsa-verifier-darwin-amd64"
-                  slsa_expected="36694b43ab23be234add09272e5faf77349d7e267bf65c01dc9bcdf58c4f496e" ;;
-                macOS-macos-aarch64)
-                  slsa_bin="slsa-verifier-darwin-arm64"
-                  slsa_expected="84d9122ce12e0c79080844285fd5c4976407ed3463e434a1b21b0979c46b1e55" ;;
-                *)  slsa_bin="" ;;
-              esac
-              if [ -n "$slsa_bin" ]; then
-                slsa_url="https://github.com/slsa-framework/slsa-verifier/releases/download/v${slsa_ver}/${slsa_bin}"
-                curl -fsSL --retry 3 -o slsa-verifier "$slsa_url"
-                # Verify slsa-verifier binary integrity before trusting it
-                if command -v sha256sum >/dev/null 2>&1; then
-                  slsa_actual=$(sha256sum slsa-verifier | awk '{print $1}')
-                else
-                  slsa_actual=$(shasum -a 256 slsa-verifier | awk '{print $1}')
-                fi
-                if [ "$slsa_expected" != "$slsa_actual" ]; then
-                  echo "::warning::slsa-verifier checksum mismatch (expected $slsa_expected, got $slsa_actual). Skipping SLSA verification."
-                  slsa_bin=""
-                  provenance_failed="true"
-                else
-                  chmod +x slsa-verifier
-                  export PATH="$PWD:$PATH"
-                fi
-              else
-                provenance_failed="true"
-              fi
-            fi
-
-            if command -v slsa-verifier >/dev/null 2>&1; then
-              # SECURITY: Unset GH_TOKEN — slsa-verifier verifies locally and
-              # does not need API access. Prevents credential exfiltration if
-              # the pinned binary were ever compromised.
-              if GH_TOKEN="" slsa-verifier verify-artifact "$archive" \
-                --provenance-path "sbom-tools.intoto.jsonl" \
-                --source-uri "github.com/sbom-tool/sbom-tools" \
-                --source-tag "v${version}" 2>&1; then
-                echo "SLSA provenance verified successfully"
-                slsa_verified="true"
-              else
-                echo "::warning::SLSA provenance verification failed. SHA-256 checksum was verified."
-                provenance_failed="true"
-              fi
-            else
-              echo "::warning::slsa-verifier not available on this platform. SHA-256 checksum was verified."
-              provenance_failed="true"
-            fi
+          # Verify the archive's GitHub artifact attestation: SLSA build
+          # provenance, Sigstore-signed when the sbom-tools release workflow
+          # built the archive for this tag on a GitHub-hosted runner. Every
+          # release with a checksums.sha256 (v0.1.16 and later) has one.
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::warning::The GitHub CLI (gh) is not installed, so build provenance cannot be verified. SHA-256 checksum was verified."
+            provenance_failed="true"
+          elif gh attestation verify "$archive" \
+            --repo sbom-tool/sbom-tools \
+            --signer-workflow sbom-tool/sbom-tools/.github/workflows/publish-crates.yml \
+            --source-ref "refs/tags/v${version}" \
+            --deny-self-hosted-runners 2>&1; then
+            echo "Build provenance verified: built by the sbom-tools release workflow for v${version}"
+            slsa_verified="true"
           else
-            echo "::warning::No provenance found for v${version}. SHA-256 checksum was verified."
+            echo "::warning::Build provenance verification failed. SHA-256 checksum was verified."
             provenance_failed="true"
           fi
 
