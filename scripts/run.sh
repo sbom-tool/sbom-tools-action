@@ -18,10 +18,14 @@ set -uo pipefail
 OUT_EXIT_CODE=''
 OUT_OUTPUT_FILE=''
 RUN_TMP=''
+STOP_TOKEN=''
 
 # shellcheck disable=SC2317,SC2329 # called by the EXIT trap
 finish() {
   local status=$?
+  # Cancelled or timed out while sbom-tools ran: turn workflow commands back
+  # on before anything else is printed.
+  if [ -n "$STOP_TOKEN" ]; then printf '::%s::\n' "$STOP_TOKEN"; fi
   if [ -n "$RUN_TMP" ]; then rm -rf -- "$RUN_TMP"; fi
   # Exits before sbom-tools ran (bad inputs) report their own status: 3.
   [ -n "$OUT_EXIT_CODE" ] || OUT_EXIT_CODE="$status"
@@ -29,6 +33,8 @@ finish() {
   gha_set_output output-file "$OUT_OUTPUT_FILE"
 }
 trap 'finish' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 main() {
   local bin status
@@ -72,6 +78,7 @@ main() {
   run_cli "$RUN_TMP/stderr.log" "$bin" "${ARGV[@]}"
   status=$?
   printf '::%s::\n' "$STOP_TOKEN"
+  STOP_TOKEN=''
 
   OUT_EXIT_CODE="$status"
   report_exit "$status" "$RUN_TMP/stderr.log"

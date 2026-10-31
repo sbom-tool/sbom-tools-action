@@ -1078,6 +1078,49 @@ test_stop_commands_around_cli_output() {
     fail "the CLI output is not between ::stop-commands:: and ::<token>:: (lines $stop_line $forged_line $resume_line)"
   fi
   assert_contains "$RUN_LOG" '::error::also forged'
+  assert_eq "$(grep -c "^::$token::\$" "$SB/run.log")" 1 'resume lines'
+}
+
+test_stop_commands_resumed_when_cancelled() {
+  # Cancelling a job, or a step timeout, signals the step's processes,
+  # sbom-tools included. run.sh must still turn workflow commands back on
+  # and set exit-code.
+  if [ "$HOST_OS" = Windows ]; then
+    skip 'signals a process group'
+    return
+  fi
+  cat >"$SB/bin/slow" <<'STUB'
+#!/usr/bin/env bash
+sleep 30
+STUB
+  chmod +x "$SB/bin/slow"
+  local started finished
+  started=$(date +%s)
+  (
+    unset_action_env
+    export GITHUB_WORKSPACE="$SB/ws" GITHUB_OUTPUT="$SB/run.output" RUNNER_TEMP="$SB/temp"
+    export RUNNER_OS="$HOST_OS" RUNNER_ARCH="$HOST_ARCH" SBOM_TOOLS_BIN="$SB/bin/slow" INPUT_COMMAND=validate
+    cd "$SB/ws" || exit 99
+    set -m # run.sh gets a process group of its own
+    "$BASH" "$SCRIPTS/run.sh" >"$SB/run.log" 2>&1 &
+    pid=$!
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
+      grep -q '^::stop-commands::' "$SB/run.log" 2>/dev/null && break
+      sleep 0.2
+    done
+    sleep 0.5
+    kill -TERM -- "-$pid"
+    wait "$pid"
+    echo "status=$?" >"$SB/cancel.status"
+  )
+  finished=$(date +%s)
+  local token
+  token=$(sed -n 's/^::stop-commands::\([0-9a-f]*\)$/\1/p' "$SB/run.log")
+  [ -n "$token" ] || fail 'no ::stop-commands:: line'
+  assert_contains "$(cat "$SB/run.log")" "::$token::" 'run.log'
+  assert_eq "$(cat "$SB/cancel.status" 2>/dev/null)" status=143 'run.sh status'
+  assert_eq "$(output_of run exit-code)" 143 'exit-code output'
+  [ $((finished - started)) -lt 15 ] || fail "took $((finished - started))s: the signal did not stop the run"
 }
 
 # ---------------------------------------- integration with the real sbom-tools
@@ -1470,6 +1513,7 @@ t test_exit_crash_and_missing_binary 'exit: a missing binary is reported as an u
 t test_exit_code_when_setup_fails 'exit-code: 3 when the Action fails before sbom-tools runs'
 t test_output_file_output 'output-file: absolute path after 0 and gate exits; empty otherwise'
 t test_stop_commands_around_cli_output 'workflow commands printed by sbom-tools are not executed'
+t test_stop_commands_resumed_when_cancelled 'a cancelled run turns workflow commands back on and sets exit-code'
 
 t test_cli_validate_verdicts 'cli: validate exits 0, 1 and 2, N/A and --require-applicable'
 t test_cli_usage_errors_exit_3 'cli: usage and operational errors exit 3 as configuration errors'
