@@ -26,7 +26,7 @@ Downloads pre-built binaries with SHA-256 checksum verification and optional [Si
 
 | Input | Description | Default |
 |-------|-------------|---------|
-| `version` | sbom-tools version (`"0.1.16"` or `"latest"`) | `latest` |
+| `version` | sbom-tools version (`"0.3.0"` or `"latest"`). In v1, `latest` means the newest 0.3.x release; see [sbom-tools 0.4 and later](#sbom-tools-04-and-later) | `latest` |
 | `command` | Command to run: `diff`, `validate`, `quality`, `view`, `query`, `enrich`, `verify`, `license-check`, `vex` | *required* |
 | `args` | Arguments to pass to the command | `""` |
 | `fail-on-vuln` | Exit non-zero on new vulnerabilities (diff) | `false` |
@@ -41,6 +41,10 @@ Downloads pre-built binaries with SHA-256 checksum verification and optional [Si
 | `working-directory` | Working directory | `.` |
 | `verify-provenance` | Provenance verification mode: `warn` (soft-fail), `require` (hard-fail), `off` (skip) | `require` |
 | `verify-slsa` | *(Deprecated — use `verify-provenance`)* Verify provenance of downloaded binary | `true` |
+
+### sbom-tools 0.4 and later
+
+sbom-tools 0.4.0 changes exit codes and the JSON output format. v1 of this action predates those changes, so from v1.4.0 `version: latest` installs the newest **0.3.x** release instead of the newest release overall. An explicit `version` of 0.4.0 or later still installs, with a warning. v2 of this action supports sbom-tools 0.4.0 and later.
 
 ## Outputs
 

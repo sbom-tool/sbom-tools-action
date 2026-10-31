@@ -8,7 +8,7 @@ branding:
 
 inputs:
   version:
-    description: 'sbom-tools version to install (e.g. "0.1.16", "latest")'
+    description: 'sbom-tools version to install (e.g. "0.3.0", "latest"). In v1 of this action, "latest" means the newest 0.3.x release; use sbom-tools-action@v2 for sbom-tools 0.4.0 and later'
     required: false
     default: 'latest'
   command:
@@ -251,9 +251,13 @@ runs:
       run: |
         version="$INPUT_VERSION"
         if [ "$version" = "latest" ]; then
-          version=$(gh release view --repo sbom-tool/sbom-tools --json tagName -q '.tagName' | sed 's/^v//')
+          # v1 stays on the sbom-tools 0.3 line. sbom-tools 0.4.0 changes exit
+          # codes and JSON output, which this action's exit-code handling
+          # predates; sbom-tools-action@v2 supports 0.4.0 and later.
+          version=$(gh release list --repo sbom-tool/sbom-tools --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName' \
+            | sed -n 's/^v\(0\.3\.[0-9][0-9]*\)$/\1/p' | sort -t. -k3,3n | tail -n 1)
           if [ -z "$version" ]; then
-            echo "::error::Failed to resolve latest version"
+            echo "::error::Failed to resolve the latest sbom-tools 0.3.x release"
             exit 1
           fi
           # Defense-in-depth: re-validate resolved version from GitHub API
@@ -261,6 +265,8 @@ runs:
             echo "::error::Resolved version '$version' does not match expected semver format"
             exit 1
           fi
+        elif [[ ! "$version" =~ ^0\.[0-3]\. ]]; then
+          echo "::warning::sbom-tools-action v1 is built for sbom-tools 0.3.x and earlier. sbom-tools $version changes exit codes and JSON output; use sbom-tools-action@v2."
         fi
         echo "version=$version" >> "$GITHUB_OUTPUT"
 
