@@ -95,7 +95,7 @@ The examples here use `@v2` for readability. For the strongest supply-chain guar
 - uses: sbom-tool/sbom-tools-action@<full commit SHA> # v2.0.0
 ```
 
-Find the SHA of a release with `git ls-remote https://github.com/sbom-tool/sbom-tools-action refs/tags/v2.0.0`, or let Dependabot or Renovate maintain the pin.
+Get the commit SHA of a release with `gh api repos/sbom-tool/sbom-tools-action/commits/v2.0.0 --jq .sha`, or let Dependabot or Renovate maintain the pin.
 
 ## Exit codes
 
