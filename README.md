@@ -26,7 +26,7 @@ Downloads pre-built binaries with SHA-256 checksum verification and optional [Si
 
 | Input | Description | Default |
 |-------|-------------|---------|
-| `version` | sbom-tools version (`"0.1.16"` or `"latest"`) | `latest` |
+| `version` | sbom-tools version (`"0.3.0"` or `"latest"`). In v1, `latest` means the newest 0.3.x release; see [sbom-tools 0.4 and later](#sbom-tools-04-and-later) | `latest` |
 | `command` | Command to run: `diff`, `validate`, `quality`, `view`, `query`, `enrich`, `verify`, `license-check`, `vex` | *required* |
 | `args` | Arguments to pass to the command | `""` |
 | `fail-on-vuln` | Exit non-zero on new vulnerabilities (diff) | `false` |
@@ -41,6 +41,10 @@ Downloads pre-built binaries with SHA-256 checksum verification and optional [Si
 | `working-directory` | Working directory | `.` |
 | `verify-provenance` | Provenance verification mode: `warn` (soft-fail), `require` (hard-fail), `off` (skip) | `require` |
 | `verify-slsa` | *(Deprecated — use `verify-provenance`)* Verify provenance of downloaded binary | `true` |
+
+### sbom-tools 0.4 and later
+
+sbom-tools 0.4.0 changes exit codes and the JSON output format. v1 of this action predates those changes, so from v1.4.0 `version: latest` installs the newest **0.3.x** release instead of the newest release overall. An explicit `version` of 0.4.0 or later still installs, with a warning. v2 of this action supports sbom-tools 0.4.0 and later.
 
 ## Outputs
 
@@ -70,7 +74,7 @@ This action implements multiple layers of verification for the downloaded `sbom-
 
 1. **SHA-256 checksum** (always) -- verifies the downloaded archive matches the checksum published alongside the release. The checksum is compared by hash value only, not by filename (preventing filename-based attacks in checksum files).
 
-2. **Provenance verification** (required by default) -- verifies [Sigstore](https://www.sigstore.dev/) bundles via `gh attestation verify` (v0.1.16+), falling back to [SLSA Level 3](https://slsa.dev/spec/v1.0/levels) provenance via [slsa-verifier](https://github.com/slsa-framework/slsa-verifier) for older releases. This cryptographically proves the binary was built by the sbom-tools CI pipeline from the expected source commit.
+2. **Provenance verification** (required by default) -- verifies the archive's [artifact attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations) with `gh attestation verify`: [SLSA](https://slsa.dev/) build provenance, signed with [Sigstore](https://www.sigstore.dev/), that must name the sbom-tools release workflow (`.github/workflows/publish-crates.yml`), the release tag, and a GitHub-hosted runner. This cryptographically proves the binary was built by the sbom-tools release pipeline for that release; an archive built anywhere else fails, even with a matching checksum. Every sbom-tools release that publishes checksums (v0.1.16 and later) carries an attestation. The check needs the GitHub CLI (`gh`), which GitHub-hosted runners include.
 
 3. **Input validation** -- all inputs are validated against strict whitelists or regex patterns before use. Shell metacharacters are rejected. Path traversal (`..`) is blocked for `working-directory` and `output-file`.
 
@@ -90,10 +94,9 @@ The `verify-provenance` input controls how provenance failures are handled:
 
 | Scenario | `require` | `warn` |
 |----------|-----------|--------|
-| Sigstore bundle verifies | `slsa-verified=true` | `slsa-verified=true` |
-| SLSA fallback verifies | `slsa-verified=true` | `slsa-verified=true` |
-| Provenance fails | **Step fails** | Warning, continues |
-| No provenance in release | **Step fails** | Warning, continues |
+| Attestation verifies | `slsa-verified=true` | `slsa-verified=true` |
+| Attestation missing or invalid | **Step fails** | Warning, continues |
+| `gh` not installed | **Step fails** | Warning, continues |
 
 ```yaml
 # Default: hard-fail on provenance failure (recommended)
@@ -102,7 +105,7 @@ The `verify-provenance` input controls how provenance failures are handled:
     command: quality
     args: sbom.json
 
-# Opt-in to soft-fail for older releases without provenance
+# Soft-fail when provenance cannot be verified (for example, no gh on a self-hosted runner)
 - uses: sbom-tool/sbom-tools-action@c73f5ccd0e22e0797e1647d8abd57ba59e407472 # v1.2.0
   with:
     command: quality
