@@ -1,0 +1,58 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:fc1234ab-cdef-4567-89ab-cdef01234567",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-01-15T09:00:00Z",
+    "tools": {
+      "components": [
+        {"type": "application", "name": "sbom-tools", "version": "0.1.20"}
+      ]
+    },
+    "supplier": {"name": "ExampleCorp", "url": ["https://example.com"], "contact": [{"name": "Security", "email": "security@example.com"}]},
+    "manufacturer": {"name": "ExampleCorp", "contact": [{"email": "legal@example.com"}]},
+    "component": {
+      "type": "application",
+      "bom-ref": "primary",
+      "name": "example-app",
+      "version": "1.0.0",
+      "purl": "pkg:cargo/example-app@1.0.0",
+      "supplier": {"name": "ExampleCorp"},
+      "licenses": [{"license": {"id": "Apache-2.0"}}],
+      "hashes": [{"alg": "SHA-512", "content": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"}],
+      "externalReferences": [
+        {"type": "vcs", "url": "https://github.com/example/example-app"},
+        {"type": "issue-tracker", "url": "https://github.com/example/example-app/issues"},
+        {"type": "advisories", "url": "https://example.com/security/advisories"},
+        {"type": "security-contact", "url": "mailto:security@example.com"},
+        {"type": "attestation", "url": "https://example.com/doc.pdf"}
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "lib-a",
+      "name": "lib-a",
+      "version": "2.3.4",
+      "purl": "pkg:cargo/lib-a@2.3.4",
+      "supplier": {"name": "LibAVendor"},
+      "hashes": [{"alg": "SHA-512", "content": "22222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"}],
+      "licenses": [{"license": {"id": "Apache-2.0"}}]
+    },
+    {
+      "type": "library",
+      "bom-ref": "lib-b",
+      "name": "lib-b",
+      "version": "0.9.1",
+      "purl": "pkg:cargo/lib-b@0.9.1",
+      "supplier": {"name": "LibBVendor"},
+      "hashes": [{"alg": "SHA-512", "content": "33333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333"}],
+      "licenses": [{"license": {"id": "MIT"}}]
+    }
+  ],
+  "dependencies": [
+    {"ref": "primary", "dependsOn": ["lib-a", "lib-b"]}
+  ]
+}

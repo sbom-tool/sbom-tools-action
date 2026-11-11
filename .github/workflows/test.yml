@@ -1,0 +1,234 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: shellcheck
+        # Locally the scripts are clean at every severity (shellcheck 0.11);
+        # CI gates on warnings, so the runner's older shellcheck agrees.
+        run: shellcheck -x --severity=warning scripts/*.sh tests/run-tests.sh tests/stubs/*
+
+  harness:
+    name: Harness (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the harness
+        shell: bash
+        run: bash tests/run-tests.sh
+
+      # The scripts must also run under macOS's own bash 3.2.
+      - name: Run the harness under /bin/bash
+        if: runner.os == 'macOS'
+        shell: bash
+        run: /bin/bash tests/run-tests.sh
+
+  network:
+    name: Harness, network tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Resolves 'latest' against the live releases, installs a real release
+      # with its provenance verified, and runs the tests that need the
+      # sbom-tools v0.4.0 release once it is published.
+      - name: Run the network tests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tests/run-tests.sh --network --release
+
+  action:
+    name: Action (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The stub CLI exits with the N of an argument named stub-exit-N.
+      - name: A passing run
+        id: pass
+        uses: ./
+        with:
+          binary-path: tests/stubs/sbom-tools
+          command: validate
+          args: tests/fixtures/ntia-warnings-only.cdx.json
+          standard: ntia
+          output-format: sarif
+          output-file: results.sarif
+
+      - name: A failing gate, softened with continue-on-error
+        id: gate
+        continue-on-error: true
+        uses: ./
+        with:
+          binary-path: tests/stubs/sbom-tools
+          command: validate
+          args: stub-exit-1.cdx.json
+
+      - name: A configuration error before sbom-tools runs
+        id: config
+        continue-on-error: true
+        uses: ./
+        with:
+          version: '0.3.0'
+          command: validate
+          args: sbom.cdx.json
+
+      - name: Check the outcomes and outputs
+        shell: bash
+        env:
+          PASS_OUTCOME: ${{ steps.pass.outcome }}
+          PASS_EXIT_CODE: ${{ steps.pass.outputs.exit-code }}
+          PASS_VERSION: ${{ steps.pass.outputs.version }}
+          PASS_SLSA_VERIFIED: ${{ steps.pass.outputs.slsa-verified }}
+          PASS_OUTPUT_FILE: ${{ steps.pass.outputs.output-file }}
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          GATE_CONCLUSION: ${{ steps.gate.conclusion }}
+          GATE_EXIT_CODE: ${{ steps.gate.outputs.exit-code }}
+          CONFIG_OUTCOME: ${{ steps.config.outcome }}
+          CONFIG_EXIT_CODE: ${{ steps.config.outputs.exit-code }}
+        run: |
+          failed=0
+          check() {
+            if [ "$2" = "$3" ]; then
+              echo "ok: $1 is '$2'"
+            else
+              echo "::error::$1: expected '$3', got '$2'"
+              failed=1
+            fi
+          }
+          check 'passing run: outcome' "$PASS_OUTCOME" success
+          check 'passing run: exit-code' "$PASS_EXIT_CODE" 0
+          check 'passing run: version' "$PASS_VERSION" 0.4.0
+          check 'passing run: slsa-verified' "$PASS_SLSA_VERIFIED" false
+          if [ -f "$PASS_OUTPUT_FILE" ]; then
+            echo "ok: passing run: output-file $PASS_OUTPUT_FILE exists"
+          else
+            echo "::error::passing run: output-file '$PASS_OUTPUT_FILE' does not exist"
+            failed=1
+          fi
+          check 'failing gate: outcome' "$GATE_OUTCOME" failure
+          check 'failing gate: conclusion' "$GATE_CONCLUSION" success
+          check 'failing gate: exit-code' "$GATE_EXIT_CODE" 1
+          check 'configuration error: outcome' "$CONFIG_OUTCOME" failure
+          check 'configuration error: exit-code' "$CONFIG_EXIT_CODE" 3
+          exit "$failed"
+
+  release:
+    name: Released sbom-tools (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Is sbom-tools v0.4.0 released?
+        id: released
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.4.0 --repo sbom-tool/sbom-tools >/dev/null 2>&1; then
+            echo 'exists=true' >>"$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >>"$GITHUB_OUTPUT"
+            echo '::notice::sbom-tools v0.4.0 is not released yet, so the install tests are skipped.'
+          fi
+
+      - name: Validate with the default version
+        id: validate
+        if: steps.released.outputs.exists == 'true'
+        continue-on-error: true
+        uses: ./
+        with:
+          command: validate
+          args: tests/fixtures/supply-chain-baseline.cdx.json
+          standard: ntia
+          output-format: sarif
+          output-file: validate.sarif
+
+      - name: Quality with version latest
+        id: latest
+        if: steps.released.outputs.exists == 'true'
+        uses: ./
+        with:
+          version: latest
+          command: quality
+          args: tests/fixtures/ntia-warnings-only.cdx.json
+          min-score: '1'
+
+      - name: Check the outcomes and outputs
+        if: steps.released.outputs.exists == 'true'
+        shell: bash
+        env:
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          VALIDATE_EXIT_CODE: ${{ steps.validate.outputs.exit-code }}
+          VALIDATE_VERSION: ${{ steps.validate.outputs.version }}
+          VALIDATE_SLSA_VERIFIED: ${{ steps.validate.outputs.slsa-verified }}
+          VALIDATE_OUTPUT_FILE: ${{ steps.validate.outputs.output-file }}
+          LATEST_VERSION: ${{ steps.latest.outputs.version }}
+          LATEST_SLSA_VERIFIED: ${{ steps.latest.outputs.slsa-verified }}
+        run: |
+          failed=0
+          check() {
+            if [ "$2" = "$3" ]; then
+              echo "ok: $1 is '$2'"
+            else
+              echo "::error::$1: expected '$3', got '$2'"
+              failed=1
+            fi
+          }
+          check 'validate: outcome' "$VALIDATE_OUTCOME" failure
+          check 'validate: exit-code' "$VALIDATE_EXIT_CODE" 1
+          check 'validate: version' "$VALIDATE_VERSION" 0.4.0
+          check 'validate: slsa-verified' "$VALIDATE_SLSA_VERIFIED" true
+          [ -f "$VALIDATE_OUTPUT_FILE" ] || { echo "::error::validate: no SARIF at '$VALIDATE_OUTPUT_FILE'"; failed=1; }
+          case "$LATEST_VERSION" in
+            0.4.*) echo "ok: latest resolved to $LATEST_VERSION" ;;
+            *) echo "::error::latest resolved to '$LATEST_VERSION'"; failed=1 ;;
+          esac
+          check 'latest: slsa-verified' "$LATEST_SLSA_VERIFIED" true
+          exit "$failed"

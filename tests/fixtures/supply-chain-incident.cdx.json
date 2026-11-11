@@ -1,0 +1,189 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-02-10T20:00:00Z",
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:npm/acme-ai-studio@3.3.0",
+      "name": "acme-ai-studio",
+      "version": "3.3.0",
+      "purl": "pkg:npm/acme-ai-studio@3.3.0"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/axios@1.7.9",
+      "name": "axios",
+      "version": "1.7.9",
+      "purl": "pkg:npm/axios@1.7.9",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/lodash@4.17.15",
+      "name": "lodash",
+      "version": "4.17.15",
+      "purl": "pkg:npm/lodash@4.17.15",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/vllm@0.8.5",
+      "name": "vllm",
+      "version": "0.8.5",
+      "purl": "pkg:pypi/vllm@0.8.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/zod@3.23.8",
+      "name": "zod",
+      "version": "3.23.8",
+      "purl": "pkg:npm/zod@3.23.8",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/axios-builder@1.2.1",
+      "name": "axios-builder",
+      "version": "1.2.1",
+      "purl": "pkg:npm/axios-builder@1.2.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/vllm-plugins@99.99.99",
+      "name": "vllm-plugins",
+      "version": "99.99.99",
+      "purl": "pkg:pypi/vllm-plugins@99.99.99",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:npm/acme-ai-studio@3.3.0",
+      "dependsOn": [
+        "pkg:npm/axios@1.7.9",
+        "pkg:npm/lodash@4.17.15",
+        "pkg:pypi/vllm@0.8.5",
+        "pkg:npm/zod@3.23.8",
+        "pkg:npm/axios-builder@1.2.1"
+      ]
+    },
+    {
+      "ref": "pkg:pypi/vllm@0.8.5",
+      "dependsOn": [
+        "pkg:pypi/vllm-plugins@99.99.99"
+      ]
+    },
+    {
+      "ref": "pkg:npm/axios-builder@1.2.1",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/vllm-plugins@99.99.99",
+      "dependsOn": []
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "id": "MAL-2025-190832",
+      "source": {
+        "name": "OSV"
+      },
+      "description": "Malicious code in axios-builder 1.2.1 from the November 24, 2025 Shai-Hulud 2.0 npm campaign.",
+      "ratings": [
+        {
+          "severity": "high",
+          "score": 8.6,
+          "method": "CVSSv31"
+        }
+      ],
+      "recommendation": "Remove axios-builder immediately and rotate any exposed credentials.",
+      "affects": [
+        {
+          "ref": "pkg:npm/axios-builder@1.2.1"
+        }
+      ]
+    },
+    {
+      "id": "GHSA-c2p2-wfqm-c359",
+      "source": {
+        "name": "GitHub Advisory Database"
+      },
+      "description": "GitHub advisory for malicious axios-builder payloads published on November 24, 2025.",
+      "ratings": [
+        {
+          "severity": "high",
+          "score": 8.2,
+          "method": "CVSSv31"
+        }
+      ],
+      "recommendation": "Remove axios-builder immediately and audit recent npm token activity.",
+      "affects": [
+        {
+          "ref": "pkg:npm/axios-builder@1.2.1"
+        }
+      ]
+    },
+    {
+      "id": "MAL-2026-844",
+      "source": {
+        "name": "OSV"
+      },
+      "description": "Malicious vllm-plugins 99.99.99 package published on February 10, 2026 in the PyPI malicious packages feed.",
+      "ratings": [
+        {
+          "severity": "critical",
+          "score": 9.8,
+          "method": "CVSSv31"
+        }
+      ],
+      "recommendation": "Remove vllm-plugins immediately and rebuild any affected environments from a trusted baseline.",
+      "affects": [
+        {
+          "ref": "pkg:pypi/vllm-plugins@99.99.99"
+        }
+      ]
+    }
+  ]
+}

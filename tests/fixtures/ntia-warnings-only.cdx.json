@@ -1,0 +1,62 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-01-04T12:00:00Z",
+    "tools": [
+      {
+        "name": "test-generator",
+        "version": "1.0.0"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "bom-ref": "app@1.0.0",
+      "name": "test-app",
+      "version": "1.0.0",
+      "purl": "pkg:npm/test-app@1.0.0",
+      "supplier": { "name": "Acme Corp" }
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "lodash@4.17.21",
+      "name": "lodash",
+      "version": "4.17.21",
+      "purl": "pkg:npm/lodash@4.17.21",
+      "supplier": { "name": "Lodash Team" }
+    },
+    {
+      "type": "library",
+      "bom-ref": "express@4.18.2",
+      "name": "express",
+      "version": "4.18.2",
+      "purl": "pkg:npm/express@4.18.2",
+      "supplier": { "name": "OpenJS Foundation" }
+    },
+    {
+      "type": "library",
+      "bom-ref": "axios@1.6.0",
+      "name": "axios",
+      "version": "1.6.0",
+      "purl": "pkg:npm/axios@1.6.0",
+      "supplier": { "name": "Axios Project" }
+    },
+    {
+      "type": "library",
+      "bom-ref": "dayjs@1.11.10",
+      "name": "dayjs",
+      "version": "1.11.10",
+      "purl": "pkg:npm/dayjs@1.11.10",
+      "supplier": { "name": "Day.js Team" }
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "lodash@4.17.21",
+      "dependsOn": ["express@4.18.2"]
+    }
+  ]
+}

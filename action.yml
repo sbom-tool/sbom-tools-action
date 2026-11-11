@@ -8,494 +8,176 @@ branding:
 
 inputs:
   version:
-    description: 'sbom-tools version to install (e.g. "0.3.0", "latest"). In v1 of this action, "latest" means the newest 0.3.x release; use sbom-tools-action@v2 for sbom-tools 0.4.0 and later'
+    description: 'sbom-tools version: an exact 0.4.x release such as "0.4.0" (the default, updated with each release of this Action), or "latest" for the newest 0.4.x release. Versions outside 0.4.x are rejected; use sbom-tools-action@v1 for sbom-tools 0.3.x. Ignored when binary-path is set.'
     required: false
-    default: 'latest'
+    default: '0.4.0'
   command:
     description: 'Command to run: diff, validate, quality, view, query, enrich, verify, license-check, vex'
     required: true
   args:
-    description: 'Arguments to pass to the command (space-separated file paths)'
+    description: 'Arguments for the command: SBOM paths, the vex or verify subcommand, and any other sbom-tools flags. Split on whitespace (spaces, tabs, line breaks) with no quoting, escaping or glob expansion. The flags set by the inputs below are added after them.'
     required: false
     default: ''
   fail-on-vuln:
-    description: 'Exit non-zero if new vulnerabilities are introduced (diff only)'
+    description: 'Exit 2 if the diff introduces vulnerabilities, or view finds any (--fail-on-vuln; diff, view)'
     required: false
     default: 'false'
   fail-on-change:
-    description: 'Exit non-zero if any SBOM changes are detected (diff only)'
+    description: 'Exit 1 if the diff finds any change (--fail-on-change; diff)'
     required: false
     default: 'false'
   fail-on-vex-gap:
-    description: 'Exit non-zero if vulnerabilities lack VEX statements (diff and vex commands)'
+    description: 'Exit 4 if introduced vulnerabilities lack VEX statements (--fail-on-vex-gap; diff)'
+    required: false
+    default: 'false'
+  fail-on-warning:
+    description: 'Exit 2 on compliance warnings, not only errors (--fail-on-warning; validate)'
+    required: false
+    default: 'false'
+  require-applicable:
+    description: 'Exit 1 when a selected standard does not apply to the SBOM, instead of reporting it as N/A (--require-applicable; validate)'
     required: false
     default: 'false'
   enrich-vulns:
-    description: 'Enrich SBOM with vulnerability data from OSV/KEV'
+    description: 'Enrich with OSV vulnerability data (--enrich-vulns; diff, view, quality, query, enrich, vex)'
     required: false
     default: 'false'
   output-format:
-    description: 'Output format: json, sarif, markdown, summary, table, csv, html, side-by-side'
+    description: 'Output format, passed as --output: summary, json, sarif, oscal-json, markdown, html, table, csv, ndjson, side-by-side or sbomqs-json. Each command accepts its own subset.'
     required: false
     default: ''
   output-file:
-    description: 'Write output to this file path'
+    description: 'Write the report to this file (--output-file), relative to working-directory and inside the workspace. Not accepted by license-check or verify.'
     required: false
     default: ''
   min-score:
-    description: 'Minimum quality score threshold (quality command only)'
+    description: 'Exit 1 if the quality score is below this threshold, 0-100 (--min-score; quality)'
     required: false
     default: ''
   standard:
-    description: 'Compliance standard(s) to check (validate command): ntia, cra, fda, ssdf, eo14028'
+    description: 'Compliance standard(s), comma-separated (--standard; validate): ntia, fda, cra, cra-phase1, ssdf, eo14028, cnsa2, pqc, bsi, oss-steward, eucc, ai-act, bsi-ai, cisa-2026, pci-dss, fsct, or an alias. Passed through; sbom-tools validates it.'
     required: false
     default: ''
   profile:
-    description: 'Quality scoring profile: minimal, standard, security, comprehensive, cra'
+    description: 'Quality scoring profile (--profile; quality): minimal, standard, security, license-compliance, cra, bsi, comprehensive, cbom, ai-readiness, or an alias. Passed through; sbom-tools validates it.'
+    required: false
+    default: ''
+  sarif-category:
+    description: 'Code-scanning category of -o sarif output, its runs[].automationDetails.id (--sarif-category; diff, view, validate, quality). upload-sarif ignores its own category input for this SARIF, so set the category here.'
+    required: false
+    default: ''
+  sarif-base:
+    description: 'Directory the SBOM path in -o sarif output is relative to (--sarif-base; diff, view, validate, quality). sbom-tools defaults to the git repository the SBOM is in.'
+    required: false
+    default: ''
+  sarif-include-passes:
+    description: 'With -o sarif, also report every check the SBOM passed, as results of kind "pass" (--sarif-include-passes; validate)'
+    required: false
+    default: 'false'
+  sarif-max-results:
+    description: 'Most results one -o sarif run keeps; sbom-tools defaults to 25000, the most GitHub code scanning accepts, and 0 keeps every result (--sarif-max-results; diff, view, validate, quality)'
+    required: false
+    default: ''
+  as-of:
+    description: 'Evaluate deadline-sensitive checks at this instant instead of now: RFC 3339 or YYYY-MM-DD (--as-of; validate, quality)'
+    required: false
+    default: ''
+  cra-sidecar:
+    description: 'CRA sidecar metadata file, JSON or YAML (--cra-sidecar; validate, quality, view), relative to working-directory and inside the workspace'
+    required: false
+    default: ''
+  cra-product-class:
+    description: 'CRA product class: default, important-class-1, important-class-2 or critical (--cra-product-class; validate, quality, view)'
     required: false
     default: ''
   working-directory:
-    description: 'Working directory for running the command'
+    description: 'Directory to run sbom-tools in, relative to the workspace'
     required: false
     default: '.'
-  verify-slsa:
-    description: '(Deprecated — use verify-provenance) Verify provenance of downloaded binary'
-    required: false
-    default: 'true'
   verify-provenance:
-    description: 'Provenance verification mode: "require" (default, hard-fail), "warn" (soft-fail), "off" (skip)'
+    description: 'Build provenance check of the downloaded release: "require" (default; fail if it cannot be verified), "warn" (warn and install on the SHA-256 checksum), "off" (skip). The SHA-256 checksum is always checked.'
     required: false
     default: 'require'
+  binary-path:
+    description: 'Path to an existing sbom-tools binary to run instead of downloading a release, such as one built from source; a relative path is taken from the workspace root. Skips the download, checksum and provenance checks; version and verify-provenance are ignored.'
+    required: false
+    default: ''
 
 outputs:
   exit-code:
-    description: 'Exit code from sbom-tools (0=success, 1=changes, 2=vulns, 4=vex-gaps)'
-    value: ${{ steps.run.outputs.exit-code }}
+    description: 'Exit code of sbom-tools, set even when the step fails: 0 success, 1 gate failed, 2 vulnerabilities or compliance warnings, 3 usage or operational error (also when the Action fails before sbom-tools runs), 4 VEX gaps, 5 license policy, 6 KEV, 7 ML regression'
+    value: ${{ steps.run.outputs.exit-code || steps.setup.outputs.exit-code }}
   version:
-    description: 'Installed sbom-tools version'
-    value: ${{ steps.install.outputs.version }}
+    description: 'The sbom-tools version that ran'
+    value: ${{ steps.setup.outputs.version }}
   slsa-verified:
-    description: 'Whether SLSA provenance was successfully verified'
-    value: ${{ steps.install.outputs.slsa-verified }}
+    description: 'Whether the build provenance of the downloaded binary was verified (true/false)'
+    value: ${{ steps.setup.outputs.slsa-verified }}
+  output-file:
+    description: 'Absolute path of the report written to output-file; empty when none was written'
+    value: ${{ steps.run.outputs.output-file }}
 
 runs:
   using: 'composite'
   steps:
-    # ── Step 1: Detect platform ──────────────────────────────────────────
-    # runner.os and runner.arch are GitHub-controlled constants, not user input.
-    - name: Detect platform
-      id: platform
-      shell: bash
-      run: |
-        case "${{ runner.os }}-${{ runner.arch }}" in
-          Linux-X64)   target="linux-x86_64" ; ext="tar.gz" ;;
-          Linux-ARM64)  target="linux-aarch64" ; ext="tar.gz" ;;
-          macOS-X64)    target="macos-x86_64" ; ext="tar.gz" ;;
-          macOS-ARM64)  target="macos-aarch64" ; ext="tar.gz" ;;
-          Windows-X64)  target="windows-x86_64" ; ext="zip" ;;
-          *)
-            echo "::error::Unsupported platform: ${{ runner.os }}-${{ runner.arch }}"
-            exit 1
-            ;;
-        esac
-        echo "target=$target" >> "$GITHUB_OUTPUT"
-        echo "ext=$ext" >> "$GITHUB_OUTPUT"
-
-    # ── Step 2: Validate all user inputs ─────────────────────────────────
-    # SECURITY: Every ${{ inputs.* }} is mapped to an env var. The run: block
-    # NEVER contains ${{ inputs.* }} expressions — only $ENV_VAR references.
-    # This prevents command injection via GitHub Actions expression interpolation.
-    - name: Validate inputs
-      id: validate
+    # SECURITY: no ${{ }} expression appears in a run: block. Every input
+    # reaches the scripts through env:, and the scripts never evaluate it:
+    # arguments are built as a bash array and passed to sbom-tools directly.
+    - name: Set up sbom-tools
+      id: setup
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_COMMAND: ${{ inputs.command }}
         INPUT_ARGS: ${{ inputs.args }}
+        INPUT_FAIL_ON_VULN: ${{ inputs.fail-on-vuln }}
+        INPUT_FAIL_ON_CHANGE: ${{ inputs.fail-on-change }}
+        INPUT_FAIL_ON_VEX_GAP: ${{ inputs.fail-on-vex-gap }}
+        INPUT_FAIL_ON_WARNING: ${{ inputs.fail-on-warning }}
+        INPUT_REQUIRE_APPLICABLE: ${{ inputs.require-applicable }}
+        INPUT_ENRICH_VULNS: ${{ inputs.enrich-vulns }}
         INPUT_OUTPUT_FORMAT: ${{ inputs.output-format }}
         INPUT_OUTPUT_FILE: ${{ inputs.output-file }}
         INPUT_MIN_SCORE: ${{ inputs.min-score }}
         INPUT_STANDARD: ${{ inputs.standard }}
         INPUT_PROFILE: ${{ inputs.profile }}
-        INPUT_FAIL_ON_VULN: ${{ inputs.fail-on-vuln }}
-        INPUT_FAIL_ON_CHANGE: ${{ inputs.fail-on-change }}
-        INPUT_FAIL_ON_VEX_GAP: ${{ inputs.fail-on-vex-gap }}
-        INPUT_ENRICH_VULNS: ${{ inputs.enrich-vulns }}
-        INPUT_WORKING_DIR: ${{ inputs.working-directory }}
-        INPUT_VERIFY_SLSA: ${{ inputs.verify-slsa }}
+        INPUT_SARIF_CATEGORY: ${{ inputs.sarif-category }}
+        INPUT_SARIF_BASE: ${{ inputs.sarif-base }}
+        INPUT_SARIF_INCLUDE_PASSES: ${{ inputs.sarif-include-passes }}
+        INPUT_SARIF_MAX_RESULTS: ${{ inputs.sarif-max-results }}
+        INPUT_AS_OF: ${{ inputs.as-of }}
+        INPUT_CRA_SIDECAR: ${{ inputs.cra-sidecar }}
+        INPUT_CRA_PRODUCT_CLASS: ${{ inputs.cra-product-class }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         INPUT_VERIFY_PROVENANCE: ${{ inputs.verify-provenance }}
-      run: |
-        errors=0
-
-        # ── Version: "latest" or strict semver (no wildcards, no shell chars) ──
-        if [[ ! "$INPUT_VERSION" =~ ^(latest|[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$ ]]; then
-          echo "::error::Invalid version: must be 'latest' or semver like '0.1.14' or '0.1.14-rc1'"
-          errors=$((errors + 1))
-        fi
-
-        # ── Command: strict whitelist ──
-        case "$INPUT_COMMAND" in
-          diff|validate|quality|view|query|enrich|verify|license-check|vex) ;;
-          *)
-            echo "::error::Invalid command: '$INPUT_COMMAND'. Must be: diff, validate, quality, view, query, enrich, verify, license-check, vex"
-            errors=$((errors + 1))
-            ;;
-        esac
-
-        # ── Args: reject all shell metacharacters ──
-        # Even though args flow through bash arrays (not eval), defense-in-depth
-        # rejects characters that have no place in file paths or CLI flags.
-        if [[ "$INPUT_ARGS" =~ [\;\|\&\$\`\(\)\{\}\<\>\!\#\\\'] ]] || [[ "$INPUT_ARGS" == *'"'* ]]; then
-          echo "::error::Invalid args: contains shell metacharacters. Use only file paths and flags."
-          errors=$((errors + 1))
-        fi
-
-        # ── Output format: strict whitelist ──
-        if [ -n "$INPUT_OUTPUT_FORMAT" ]; then
-          case "$INPUT_OUTPUT_FORMAT" in
-            json|sarif|markdown|summary|table|csv|html|side-by-side) ;;
-            *)
-              echo "::error::Invalid output-format: '$INPUT_OUTPUT_FORMAT'"
-              errors=$((errors + 1))
-              ;;
-          esac
-        fi
-
-        # ── Output file: reject shell metacharacters and path traversal ──
-        if [[ "$INPUT_OUTPUT_FILE" =~ [\;\|\&\$\`\(\)\{\}\<\>\!\#\\\'] ]] || [[ "$INPUT_OUTPUT_FILE" == *'"'* ]]; then
-          echo "::error::Invalid output-file: contains shell metacharacters"
-          errors=$((errors + 1))
-        fi
-        if [ -n "$INPUT_OUTPUT_FILE" ]; then
-          if [[ "$INPUT_OUTPUT_FILE" == /* ]] || [[ "$INPUT_OUTPUT_FILE" == *..* ]]; then
-            echo "::error::Invalid output-file: must be relative and cannot contain '..'"
-            errors=$((errors + 1))
-          fi
-        fi
-
-        # ── Min-score: numeric only ──
-        if [ -n "$INPUT_MIN_SCORE" ] && [[ ! "$INPUT_MIN_SCORE" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-          echo "::error::Invalid min-score: '$INPUT_MIN_SCORE'. Must be a number."
-          errors=$((errors + 1))
-        fi
-
-        # ── Standard: comma-separated whitelist ──
-        if [ -n "$INPUT_STANDARD" ]; then
-          IFS=',' read -ra standards <<< "$INPUT_STANDARD"
-          for std in "${standards[@]}"; do
-            case "$std" in
-              ntia|cra|fda|ssdf|eo14028) ;;
-              *)
-                echo "::error::Invalid standard: '$std'"
-                errors=$((errors + 1))
-                ;;
-            esac
-          done
-        fi
-
-        # ── Profile: strict whitelist ──
-        if [ -n "$INPUT_PROFILE" ]; then
-          case "$INPUT_PROFILE" in
-            minimal|standard|security|comprehensive|cra|license-compliance) ;;
-            *)
-              echo "::error::Invalid profile: '$INPUT_PROFILE'"
-              errors=$((errors + 1))
-              ;;
-          esac
-        fi
-
-        # ── Verify-provenance: strict whitelist (tri-state) ──
-        if [ -n "$INPUT_VERIFY_PROVENANCE" ]; then
-          case "$INPUT_VERIFY_PROVENANCE" in
-            warn|require|off) ;;
-            *)
-              echo "::error::Invalid verify-provenance: '$INPUT_VERIFY_PROVENANCE'. Must be: warn, require, off"
-              errors=$((errors + 1))
-              ;;
-          esac
-        fi
-
-        # ── Booleans: must be exactly "true" or "false" ──
-        for var_name in INPUT_FAIL_ON_VULN INPUT_FAIL_ON_CHANGE INPUT_FAIL_ON_VEX_GAP INPUT_ENRICH_VULNS INPUT_VERIFY_SLSA; do
-          val="${!var_name}"
-          if [[ "$val" != "true" && "$val" != "false" ]]; then
-            echo "::error::Invalid boolean for ${var_name}: '$val'"
-            errors=$((errors + 1))
-          fi
-        done
-
-        # ── Working directory: reject shell metacharacters and path traversal ──
-        if [[ "$INPUT_WORKING_DIR" =~ [\;\|\&\$\`\(\)\{\}\<\>\!\#\\\'] ]] || [[ "$INPUT_WORKING_DIR" == *'"'* ]]; then
-          echo "::error::Invalid working-directory: contains shell metacharacters"
-          errors=$((errors + 1))
-        fi
-        if [[ "$INPUT_WORKING_DIR" == /* ]] || [[ "$INPUT_WORKING_DIR" == *..* ]]; then
-          echo "::error::Invalid working-directory: must be relative and cannot contain '..'"
-          errors=$((errors + 1))
-        fi
-
-        if [ "$errors" -gt 0 ]; then
-          echo "::error::Input validation failed with $errors error(s)"
-          exit 1
-        fi
-        echo "All inputs validated"
-
-    # ── Step 3: Resolve version ──────────────────────────────────────────
-    # SECURITY: INPUT_VERSION from env var (safe). gh output is re-validated.
-    - name: Resolve version
-      id: version
-      shell: bash
-      env:
-        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_BINARY_PATH: ${{ inputs.binary-path }}
         GH_TOKEN: ${{ github.token }}
-      run: |
-        version="$INPUT_VERSION"
-        if [ "$version" = "latest" ]; then
-          # v1 stays on the sbom-tools 0.3 line. sbom-tools 0.4.0 changes exit
-          # codes and JSON output, which this action's exit-code handling
-          # predates; sbom-tools-action@v2 supports 0.4.0 and later.
-          version=$(gh release list --repo sbom-tool/sbom-tools --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName' \
-            | sed -n 's/^v\(0\.3\.[0-9][0-9]*\)$/\1/p' | sort -t. -k3,3n | tail -n 1)
-          if [ -z "$version" ]; then
-            echo "::error::Failed to resolve the latest sbom-tools 0.3.x release"
-            exit 1
-          fi
-          # Defense-in-depth: re-validate resolved version from GitHub API
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-            echo "::error::Resolved version '$version' does not match expected semver format"
-            exit 1
-          fi
-        elif [[ ! "$version" =~ ^0\.[0-3]\. ]]; then
-          echo "::warning::sbom-tools-action v1 is built for sbom-tools 0.3.x and earlier. sbom-tools $version changes exit codes and JSON output; use sbom-tools-action@v2."
-        fi
-        echo "version=$version" >> "$GITHUB_OUTPUT"
+      run: bash "$GITHUB_ACTION_PATH/scripts/setup.sh"
 
-    # ── Step 4: Download, verify, install ────────────────────────────────
-    # SECURITY INVARIANT: ZERO ${{ }} expressions in the run: block.
-    # All dynamic values come through env: mappings exclusively.
-    # - RESOLVED_VERSION: from step output (validated semver)
-    # - RESOLVED_TARGET/EXT: from platform detection (hardcoded values)
-    # - RUNNER_OS_VALUE: GitHub-controlled constant
-    # - INPUT_VERIFY_SLSA: validated boolean (deprecated, backward compat)
-    # - INPUT_VERIFY_PROVENANCE: validated tri-state (warn/require/off)
-    - name: Install sbom-tools
-      id: install
-      shell: bash
-      env:
-        RESOLVED_VERSION: ${{ steps.version.outputs.version }}
-        RESOLVED_TARGET: ${{ steps.platform.outputs.target }}
-        RESOLVED_EXT: ${{ steps.platform.outputs.ext }}
-        RUNNER_OS_VALUE: ${{ runner.os }}
-        INPUT_VERIFY_SLSA: ${{ inputs.verify-slsa }}
-        INPUT_VERIFY_PROVENANCE: ${{ inputs.verify-provenance }}
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        version="$RESOLVED_VERSION"
-        target="$RESOLVED_TARGET"
-        ext="$RESOLVED_EXT"
-        archive="sbom-tools-${target}.${ext}"
-        base_url="https://github.com/sbom-tool/sbom-tools/releases/download/v${version}"
-
-        # ── Resolve provenance mode ──
-        # verify-provenance takes precedence; fall back to verify-slsa for backward compat.
-        provenance_mode="$INPUT_VERIFY_PROVENANCE"
-        if [ -z "$provenance_mode" ]; then
-          if [ "$INPUT_VERIFY_SLSA" = "true" ]; then
-            provenance_mode="warn"
-          else
-            provenance_mode="off"
-          fi
-        fi
-
-        # ── Isolated temp directory ──
-        work_dir=$(mktemp -d)
-        trap 'rm -rf "$work_dir"' EXIT
-        cd "$work_dir"
-
-        # ── Download binary archive + checksums ──
-        echo "::group::Downloading sbom-tools v${version} for ${target}"
-        curl -fsSL --retry 3 -o "$archive" "${base_url}/${archive}"
-        curl -fsSL --retry 3 -o "checksums.sha256" "${base_url}/checksums.sha256"
-
-        # ── SHA-256 verification ──
-        # Extract the hash for our specific archive from the combined checksums file.
-        # Anchored match: space(s) or * then exact filename at end of line,
-        # preventing substring collisions (e.g. .tar.gz vs .tar.gz.sig).
-        expected_hash=$(grep -E "[[:space:]*]${archive}$" checksums.sha256 | awk '{print $1}' | head -1)
-        if [ -z "$expected_hash" ]; then
-          echo "::error::Archive '$archive' not found in checksums.sha256"
-          exit 1
-        fi
-
-        # Validate hash looks like a hex SHA-256 (exactly 64 hex chars)
-        if [[ ! "$expected_hash" =~ ^[0-9a-f]{64}$ ]]; then
-          echo "::error::Malformed checksum file: expected 64-char hex hash, got '${expected_hash:0:20}...'"
-          exit 1
-        fi
-
-        if command -v sha256sum >/dev/null 2>&1; then
-          actual_hash=$(sha256sum "$archive" | awk '{print $1}')
-        elif command -v shasum >/dev/null 2>&1; then
-          actual_hash=$(shasum -a 256 "$archive" | awk '{print $1}')
-        else
-          echo "::error::No SHA-256 tool found (sha256sum or shasum). Cannot verify binary integrity."
-          exit 1
-        fi
-
-        if [ "$expected_hash" != "$actual_hash" ]; then
-          echo "::error::SHA-256 checksum mismatch! Expected: $expected_hash, Got: $actual_hash"
-          exit 1
-        fi
-        echo "SHA-256 verified: $actual_hash"
-
-        # ── Provenance verification ──
-        # provenance_mode: "warn" = soft-fail, "require" = hard-fail, "off" = skip
-        slsa_verified="false"
-        provenance_failed="false"
-        if [ "$provenance_mode" != "off" ]; then
-          echo "Attempting provenance verification (mode: ${provenance_mode})..."
-
-          # Verify the archive's GitHub artifact attestation: SLSA build
-          # provenance, Sigstore-signed when the sbom-tools release workflow
-          # built the archive for this tag on a GitHub-hosted runner. Every
-          # release with a checksums.sha256 (v0.1.16 and later) has one.
-          if ! command -v gh >/dev/null 2>&1; then
-            echo "::warning::The GitHub CLI (gh) is not installed, so build provenance cannot be verified. SHA-256 checksum was verified."
-            provenance_failed="true"
-          elif gh attestation verify "$archive" \
-            --repo sbom-tool/sbom-tools \
-            --signer-workflow sbom-tool/sbom-tools/.github/workflows/publish-crates.yml \
-            --source-ref "refs/tags/v${version}" \
-            --deny-self-hosted-runners 2>&1; then
-            echo "Build provenance verified: built by the sbom-tools release workflow for v${version}"
-            slsa_verified="true"
-          else
-            echo "::warning::Build provenance verification failed. SHA-256 checksum was verified."
-            provenance_failed="true"
-          fi
-
-          # In "require" mode, hard-fail if provenance could not be verified
-          if [ "$provenance_mode" = "require" ] && [ "$slsa_verified" != "true" ]; then
-            echo "::error::Provenance verification failed and verify-provenance is set to 'require'. Aborting."
-            echo "::error::Set verify-provenance to 'warn' to continue with SHA-256 verification only."
-            exit 1
-          fi
-        fi
-        echo "slsa-verified=$slsa_verified" >> "$GITHUB_OUTPUT"
-
-        # ── Extract archive into isolated subdirectory ──
-        # Prevents tar/zip path traversal (Zip Slip) from writing outside work_dir.
-        mkdir extract_dir
-        if [ "$ext" = "tar.gz" ]; then
-          tar xzf "$archive" -C extract_dir
-        else
-          unzip -q "$archive" -d extract_dir
-        fi
-
-        # ── Verify extracted binary exists and is not a symlink ──
-        if [ "$RUNNER_OS_VALUE" = "Windows" ]; then
-          binary_name="sbom-tools.exe"
-        else
-          binary_name="sbom-tools"
-        fi
-        if [ -L "extract_dir/$binary_name" ]; then
-          echo "::error::Extracted binary is a symlink — rejecting for security"
-          exit 1
-        fi
-        if [ ! -f "extract_dir/$binary_name" ]; then
-          echo "::error::Expected binary '$binary_name' not found in archive"
-          exit 1
-        fi
-
-        # ── Install to tool cache ──
-        install_dir="${RUNNER_TOOL_CACHE:-/tmp}/sbom-tools/${version}"
-        mkdir -p "$install_dir"
-        mv "extract_dir/$binary_name" "$install_dir/"
-        if [ "$RUNNER_OS_VALUE" != "Windows" ]; then
-          chmod +x "$install_dir/$binary_name"
-        fi
-        echo "$install_dir" >> "$GITHUB_PATH"
-        echo "::endgroup::"
-
-        echo "version=$version" >> "$GITHUB_OUTPUT"
-        echo "Installed sbom-tools v${version}"
-
-    # ── Step 5: Run sbom-tools ───────────────────────────────────────────
-    # SECURITY INVARIANT: ZERO ${{ }} expressions in the run: block.
-    # Command built as a bash array and executed directly (no eval, no string
-    # interpolation). Each argument is a separate array element, preventing
-    # shell interpretation of metacharacters even if validation is bypassed.
     - name: Run sbom-tools
       id: run
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
+        SBOM_TOOLS_BIN: ${{ steps.setup.outputs.binary }}
         INPUT_COMMAND: ${{ inputs.command }}
         INPUT_ARGS: ${{ inputs.args }}
         INPUT_FAIL_ON_VULN: ${{ inputs.fail-on-vuln }}
         INPUT_FAIL_ON_CHANGE: ${{ inputs.fail-on-change }}
         INPUT_FAIL_ON_VEX_GAP: ${{ inputs.fail-on-vex-gap }}
+        INPUT_FAIL_ON_WARNING: ${{ inputs.fail-on-warning }}
+        INPUT_REQUIRE_APPLICABLE: ${{ inputs.require-applicable }}
         INPUT_ENRICH_VULNS: ${{ inputs.enrich-vulns }}
         INPUT_OUTPUT_FORMAT: ${{ inputs.output-format }}
         INPUT_OUTPUT_FILE: ${{ inputs.output-file }}
         INPUT_MIN_SCORE: ${{ inputs.min-score }}
         INPUT_STANDARD: ${{ inputs.standard }}
         INPUT_PROFILE: ${{ inputs.profile }}
-      run: |
-        # Build argument array — each value is a discrete array element
-        args=("$INPUT_COMMAND")
-
-        if [ "$INPUT_FAIL_ON_VULN" = "true" ]; then
-          args+=("--fail-on-vuln")
-        fi
-        if [ "$INPUT_FAIL_ON_CHANGE" = "true" ]; then
-          args+=("--fail-on-change")
-        fi
-        if [ "$INPUT_FAIL_ON_VEX_GAP" = "true" ]; then
-          args+=("--fail-on-vex-gap")
-        fi
-        if [ "$INPUT_ENRICH_VULNS" = "true" ]; then
-          args+=("--enrich-vulns")
-        fi
-
-        if [ -n "$INPUT_OUTPUT_FORMAT" ]; then
-          args+=("-o" "$INPUT_OUTPUT_FORMAT")
-        fi
-        if [ -n "$INPUT_OUTPUT_FILE" ]; then
-          args+=("-O" "$INPUT_OUTPUT_FILE")
-        fi
-
-        if [ -n "$INPUT_MIN_SCORE" ]; then
-          args+=("--min-score" "$INPUT_MIN_SCORE")
-        fi
-        if [ -n "$INPUT_STANDARD" ]; then
-          args+=("--standard" "$INPUT_STANDARD")
-        fi
-        if [ -n "$INPUT_PROFILE" ]; then
-          args+=("--profile" "$INPUT_PROFILE")
-        fi
-
-        # Positional args: split by whitespace into array elements.
-        # The "--" separator prevents values from being interpreted as flags.
-        if [ -n "$INPUT_ARGS" ]; then
-          args+=("--")
-          read -ra extra_args <<< "$INPUT_ARGS"
-          args+=("${extra_args[@]}")
-        fi
-
-        echo "::group::Running: sbom-tools ${args[*]}"
-        set +e
-        sbom-tools "${args[@]}"
-        exit_code=$?
-        set -e
-        echo "::endgroup::"
-
-        echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
-
-        case $exit_code in
-          0) echo "sbom-tools completed successfully" ;;
-          1) echo "::warning::SBOM changes detected (exit code 1)" ;;
-          2) echo "::error::New vulnerabilities introduced (exit code 2)" ;;
-          4) echo "::error::VEX coverage gaps found (exit code 4)" ;;
-          *) echo "::error::sbom-tools failed with exit code $exit_code" ; exit $exit_code ;;
-        esac
+        INPUT_SARIF_CATEGORY: ${{ inputs.sarif-category }}
+        INPUT_SARIF_BASE: ${{ inputs.sarif-base }}
+        INPUT_SARIF_INCLUDE_PASSES: ${{ inputs.sarif-include-passes }}
+        INPUT_SARIF_MAX_RESULTS: ${{ inputs.sarif-max-results }}
+        INPUT_AS_OF: ${{ inputs.as-of }}
+        INPUT_CRA_SIDECAR: ${{ inputs.cra-sidecar }}
+        INPUT_CRA_PRODUCT_CLASS: ${{ inputs.cra-product-class }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/run.sh"

@@ -1,0 +1,81 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-02-01T10:00:00Z"
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "pkg:generic/product-suite@1.0.0",
+      "name": "product-suite",
+      "version": "1.0.0",
+      "purl": "pkg:generic/product-suite@1.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/reporting-core@2.4.0",
+      "name": "reporting-core",
+      "version": "2.4.0",
+      "purl": "pkg:generic/reporting-core@2.4.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/analytics-agent@4.1.0",
+      "name": "analytics-agent",
+      "version": "4.1.0",
+      "purl": "pkg:generic/analytics-agent@4.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/charting-engine@3.0.0",
+      "name": "charting-engine",
+      "version": "3.0.0",
+      "purl": "pkg:generic/charting-engine@3.0.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-only"
+          }
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:generic/product-suite@1.0.0",
+      "dependsOn": [
+        "pkg:generic/reporting-core@2.4.0",
+        "pkg:generic/analytics-agent@4.1.0"
+      ]
+    },
+    {
+      "ref": "pkg:generic/analytics-agent@4.1.0",
+      "dependsOn": [
+        "pkg:generic/charting-engine@3.0.0"
+      ]
+    }
+  ]
+}

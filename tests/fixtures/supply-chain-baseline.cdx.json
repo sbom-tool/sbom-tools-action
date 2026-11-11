@@ -1,0 +1,100 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2025-11-20T08:00:00Z",
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:npm/acme-ai-studio@3.2.0",
+      "name": "acme-ai-studio",
+      "version": "3.2.0",
+      "purl": "pkg:npm/acme-ai-studio@3.2.0"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/axios@1.7.9",
+      "name": "axios",
+      "version": "1.7.9",
+      "purl": "pkg:npm/axios@1.7.9",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/lodash@4.17.21",
+      "name": "lodash",
+      "version": "4.17.21",
+      "purl": "pkg:npm/lodash@4.17.21",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/vllm@0.8.5",
+      "name": "vllm",
+      "version": "0.8.5",
+      "purl": "pkg:pypi/vllm@0.8.5",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/zod@3.23.8",
+      "name": "zod",
+      "version": "3.23.8",
+      "purl": "pkg:npm/zod@3.23.8",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:npm/acme-ai-studio@3.2.0",
+      "dependsOn": [
+        "pkg:npm/axios@1.7.9",
+        "pkg:npm/lodash@4.17.21",
+        "pkg:pypi/vllm@0.8.5",
+        "pkg:npm/zod@3.23.8"
+      ]
+    },
+    {
+      "ref": "pkg:npm/axios@1.7.9",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/lodash@4.17.21",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:pypi/vllm@0.8.5",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/zod@3.23.8",
+      "dependsOn": []
+    }
+  ]
+}

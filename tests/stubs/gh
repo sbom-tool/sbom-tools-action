@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Stand-in for the GitHub CLI, used by tests/run-tests.sh. Each call is
+# logged to $STUB_GH_LOG, one line per call.
+#
+#   gh release list ...       prints the tags in $STUB_GH_TAGS, one per line,
+#                             and exits $STUB_GH_LIST_EXIT (default 0)
+#   gh attestation verify ... exits $STUB_GH_ATTEST_EXIT (default 0)
+
+if [ -n "${STUB_GH_LOG:-}" ]; then
+  { printf 'gh'; printf ' %s' "$@"; printf '\n'; } >>"$STUB_GH_LOG"
+fi
+case "${1:-} ${2:-}" in
+  'release list')
+    for tag in ${STUB_GH_TAGS:-}; do printf '%s\n' "$tag"; done
+    exit "${STUB_GH_LIST_EXIT:-0}"
+    ;;
+  'attestation verify')
+    exit "${STUB_GH_ATTEST_EXIT:-0}"
+    ;;
+esac
+echo "stub gh: unexpected arguments: $*" >&2
+exit 64
