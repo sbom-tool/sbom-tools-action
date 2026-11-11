@@ -4,7 +4,7 @@ Each major version of this Action runs one sbom-tools release line: v1 runs
 sbom-tools 0.3.x and earlier, v2 runs 0.4.x. Breaking changes come only with
 a new major version, and are listed under its **Breaking changes**.
 
-## v2.0.0 (unreleased)
+## v2.0.0 (2026-11-11)
 
 Released with sbom-tools 0.4.0.
 
